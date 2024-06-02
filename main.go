@@ -33,7 +33,7 @@ func main() {
 
 	switch runtime.GOOS {
 	case "windows":
-		cmd := exec.Command("cmd", "/c", "start", "chrome", "--window-size=500,0%", loadUrl)
+		cmd := exec.Command("cmd", "/c", "start", "chrome", loadUrl)
 		err = cmd.Start()
 		if err == nil {
 			err = cmd.Wait()
