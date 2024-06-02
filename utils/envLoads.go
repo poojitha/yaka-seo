@@ -1,4 +1,4 @@
-package inits
+package utils
 
 import (
 	"log"
