@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/poojitha/yaka-seo/utils"
@@ -28,14 +29,48 @@ func extractLinks(n *html.Node, links chan string) {
 	}
 }
 
-func main() {
-
-	url := "https://www.optimumpet.com.au"
+func getHrefs(url string) ([]string, error) {
+	var hrefs []string
 	content, err := webpage.ReadCotent(url)
-	fmt.Println(content)
 
 	if err != nil {
 		fmt.Println(err)
+	}
+
+	doc, err := html.Parse(strings.NewReader(string(content)))
+
+	if err != nil {
+		return nil, err
+	}
+
+	hrefs = loopHrefs(doc, hrefs)
+
+	return hrefs, nil
+}
+
+func loopHrefs(n *html.Node, hrefs []*string) []string {
+	if n.Type == html.ElementNode && n.Data == "a" {
+		for _, attr := range n.Attr {
+			if attr.Key == "href" {
+				hrefs = append(hrefs, attr.Val)
+				fmt.Println(attr.Val)
+				break
+			}
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		loopHrefs(c)
+	}
+
+	return hrefs
+}
+
+func main() {
+
+	links, err := getHrefs("https://optimumpet.com.au")
+
+	if err != nil {
+		fmt.Println(links)
 	}
 
 	r := gin.Default()
