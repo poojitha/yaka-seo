@@ -30,7 +30,7 @@ func extractLinks(n *html.Node, links chan string) {
 }
 
 func getHrefs(url string) ([]string, error) {
-	var hrefs []string
+
 	content, err := webpage.ReadCotent(url)
 
 	if err != nil {
@@ -43,12 +43,13 @@ func getHrefs(url string) ([]string, error) {
 		return nil, err
 	}
 
-	hrefs = loopHrefs(doc, hrefs)
+	hrefs := loopHrefs(doc)
 
 	return hrefs, nil
 }
 
-func loopHrefs(n *html.Node, hrefs []*string) []string {
+func loopHrefs(n *html.Node) []string {
+	var hrefs []string
 	if n.Type == html.ElementNode && n.Data == "a" {
 		for _, attr := range n.Attr {
 			if attr.Key == "href" {
