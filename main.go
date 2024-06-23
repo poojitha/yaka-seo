@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,18 +16,21 @@ func init() {
 	utils.LoadEnvs()
 }
 
-func extractLinks(n *html.Node, links chan string) {
+func extractLinks(n *html.Node, hrefs *[]string) {
+	if n == nil {
+		return
+	}
+
 	if n.Type == html.ElementNode && n.Data == "a" {
-		for _, a := range n.Attr {
-			if a.Key == "href" {
-				links <- a.Val
+		for _, attr := range n.Attr {
+			if attr.Key == "href" {
+				*hrefs = append(*hrefs, attr.Val)
 			}
 		}
 	}
 
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		extractLinks(c, links)
-	}
+	// Recursively call for child nodes
+	extractLinks(n.FirstChild, hrefs)
 }
 
 func getHrefs(url string) ([]string, error) {
@@ -37,39 +41,50 @@ func getHrefs(url string) ([]string, error) {
 		fmt.Println(err)
 	}
 
-	doc, err := html.Parse(strings.NewReader(string(content)))
+	html.Parse(strings.NewReader(string(content)))
 
 	if err != nil {
 		return nil, err
 	}
 
-	hrefs := loopHrefs(doc)
+	reader := bytes.NewReader([]byte(string(content)))
+	rootNode, err := html.Parse(reader)
 
+	if err != nil {
+		fmt.Println("Error parsing HTML:", err)
+		return nil, err
+	}
+
+	var hrefs []string
+
+	var loopNodes func(*html.Node)
+
+	loopNodes = func(n *html.Node) {
+		if n == nil {
+			return
+		}
+
+		if n.Type == html.ElementNode && n.Data == "a" {
+			for _, attr := range n.Attr {
+				if attr.Key == "href" {
+					hrefs = append(hrefs, attr.Val)
+					fmt.Println(attr.Val)
+					break
+				}
+			}
+		}
+
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			loopNodes(c)
+		}
+	}
+
+	loopNodes(rootNode)
 	return hrefs, nil
 }
 
-func loopHrefs(n *html.Node) []string {
-	var hrefs []string
-	if n.Type == html.ElementNode && n.Data == "a" {
-		for _, attr := range n.Attr {
-			if attr.Key == "href" {
-				hrefs = append(hrefs, attr.Val)
-				fmt.Println(attr.Val)
-				break
-			}
-		}
-	}
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		loopHrefs(c)
-	}
-
-	return hrefs
-}
-
 func main() {
-
 	links, err := getHrefs("https://optimumpet.com.au")
-
 	if err != nil {
 		fmt.Println(links)
 	}
