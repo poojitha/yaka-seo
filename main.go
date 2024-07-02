@@ -16,23 +16,6 @@ func init() {
 	utils.LoadEnvs()
 }
 
-func extractLinks(n *html.Node, hrefs *[]string) {
-	if n == nil {
-		return
-	}
-
-	if n.Type == html.ElementNode && n.Data == "a" {
-		for _, attr := range n.Attr {
-			if attr.Key == "href" {
-				*hrefs = append(*hrefs, attr.Val)
-			}
-		}
-	}
-
-	// Recursively call for child nodes
-	extractLinks(n.FirstChild, hrefs)
-}
-
 func getHrefs(url string) ([]string, error) {
 
 	content, err := webpage.ReadCotent(url)
@@ -68,7 +51,6 @@ func getHrefs(url string) ([]string, error) {
 			for _, attr := range n.Attr {
 				if attr.Key == "href" {
 					hrefs = append(hrefs, attr.Val)
-					fmt.Println(attr.Val)
 					break
 				}
 			}
@@ -80,11 +62,13 @@ func getHrefs(url string) ([]string, error) {
 	}
 
 	loopNodes(rootNode)
+
 	return hrefs, nil
 }
 
 func main() {
 	links, err := getHrefs("https://optimumpet.com.au")
+
 	if err != nil {
 		fmt.Println(links)
 	}
