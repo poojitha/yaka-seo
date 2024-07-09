@@ -8,21 +8,9 @@ import (
 	"golang.org/x/net/html"
 )
 
-func getHrefs(url string) ([]string, error) {
-
-	content, err := ReadCotent(url)
-
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	html.Parse(strings.NewReader(string(content)))
-
-	if err != nil {
-		return nil, err
-	}
-
-	reader := bytes.NewReader([]byte(string(content)))
+func GetHrefs(htmlContent string) ([]string, error) {
+	html.Parse(strings.NewReader(string(htmlContent)))
+	reader := bytes.NewReader([]byte(string(htmlContent)))
 	rootNode, err := html.Parse(reader)
 
 	if err != nil {
@@ -31,7 +19,6 @@ func getHrefs(url string) ([]string, error) {
 	}
 
 	var hrefs []string
-
 	var loopNodes func(*html.Node)
 
 	loopNodes = func(n *html.Node) {

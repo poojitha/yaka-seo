@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/poojitha/yaka-seo/utils"
+	"github.com/poojitha/yaka-seo/webpage"
 )
 
 func init() {
@@ -13,10 +14,14 @@ func init() {
 }
 
 func main() {
-	links, err := webpage.getHrefs("https://google.com")
 
-	if err != nil {
-		fmt.Println(links)
+	pageContent, err := webpage.ReadCotent("https://google.com")
+
+	if err == nil {
+		links, err := webpage.GetHrefs(pageContent)
+		if err == nil {
+			fmt.Println(links)
+		}
 	}
 
 	r := gin.Default()
