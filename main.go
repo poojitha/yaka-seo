@@ -18,7 +18,7 @@ func main() {
 	pageContent, err := webpage.ReadCotent("https://google.com")
 
 	if err == nil {
-		links, err := webpage.GetHrefs(pageContent)
+		links, err := webpage.GetTagValues(pageContent, "a", "href")
 		if err == nil {
 			fmt.Println(links)
 		}

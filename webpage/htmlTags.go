@@ -8,7 +8,16 @@ import (
 	"golang.org/x/net/html"
 )
 
-func GetHrefs(htmlContent string) ([]string, error) {
+/**
+ * GetHrefs extracts a list of GetTagValues attribute values from a provided HTML content string.
+ *
+ * @param htmlContent The HTML content string to be parsed.
+ * @param tagName The HTML tag name of elements to target for attribute extraction.
+ * @param attribute The attribute name containing the desired href values.
+ *
+ * @return A slice of strings containing the extracted href values, or nil with an error if parsing fails.
+ */
+func GetTagValues(htmlContent string, tagName string, attribute string) ([]string, error) {
 	html.Parse(strings.NewReader(string(htmlContent)))
 	reader := bytes.NewReader([]byte(string(htmlContent)))
 	rootNode, err := html.Parse(reader)
@@ -26,9 +35,9 @@ func GetHrefs(htmlContent string) ([]string, error) {
 			return
 		}
 
-		if n.Type == html.ElementNode && n.Data == "a" {
+		if n.Type == html.ElementNode && n.Data == tagName {
 			for _, attr := range n.Attr {
-				if attr.Key == "href" {
+				if attr.Key == attribute {
 					hrefs = append(hrefs, attr.Val)
 					break
 				}
