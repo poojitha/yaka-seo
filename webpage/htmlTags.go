@@ -1,17 +1,16 @@
-package web
+package webpage
 
 import (
 	"bytes"
 	"fmt"
 	"strings"
 
-	"github.com/poojitha/yaka-seo/webpage"
 	"golang.org/x/net/html"
 )
 
 func getHrefs(url string) ([]string, error) {
 
-	content, err := webpage.ReadCotent(url)
+	content, err := ReadCotent(url)
 
 	if err != nil {
 		fmt.Println(err)
