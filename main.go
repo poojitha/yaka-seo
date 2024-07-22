@@ -15,14 +15,17 @@ func init() {
 
 func main() {
 
-	pageContent, err := webpage.ReadCotent("https://google.com")
+	pageContent, err := webpage.ReadCotent("https://www.gossiplanka.com/")
+	var links []string
 
 	if err == nil {
-		links, err := webpage.GetTagValues(pageContent, "a", "href")
-		if err == nil {
-			fmt.Println(links)
+		links, err = webpage.GetTagValues(pageContent, "a", "href")
+		if err != nil {
+			fmt.Println("Getting tag values:", err)
 		}
 	}
+
+	fmt.Println(links)
 
 	r := gin.Default()
 	r.GET("/", func(c *gin.Context) {
