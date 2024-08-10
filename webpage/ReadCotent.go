@@ -3,7 +3,13 @@ package webpage
 import (
 	"io"
 	"net/http"
+	"strings"
+
+	"github.com/poojitha/yaka-seo/linkr"
+	"github.com/poojitha/yaka-seo/utils"
 )
+
+type uniqUrlMap[K comparable, V any] map[K]V
 
 func ReadCotent(url string) (string, error) {
 	// Create a new HTTP client
@@ -33,4 +39,55 @@ func ReadCotent(url string) (string, error) {
 
 	// Return the content as string
 	return string(body), nil
+}
+
+// GetPageLinks retrieves a map of unique links from a given URL.
+// Args:
+//   url string: The URL from which to retrieve page links.
+//
+// Returns:
+//   (uniqUrlMap[string, string], error): A map of unique URLs and an error if any occurred during the process.
+
+func GetPageLinks(url string) (uniqUrlMap[string, string], error) {
+	mainHost, parseLinkError := linkr.ParseLink(url)
+	if parseLinkError != nil {
+		return uniqUrlMap[string, string]{}, parseLinkError
+	}
+
+	pageContent, readContentError := ReadCotent(mainHost.Scheme + "://" + mainHost.Host)
+	if readContentError != nil {
+		return uniqUrlMap[string, string]{}, readContentError
+	}
+
+	uniqueUrls := uniqUrlMap[string, string]{}
+
+	if pageContent != "" {
+		links, tagValueError := GetTagValues(pageContent, "a", "href")
+		if tagValueError != nil {
+			return uniqUrlMap[string, string]{}, tagValueError
+		}
+
+		var loopLinks func(links []string)
+		loopLinks = func(links []string) {
+			for i := 0; i < len(links); i++ {
+				if strings.Contains(links[i], mainHost.Host) {
+					hash, hashError := utils.Hash(links[i], 10)
+					if hashError == nil {
+						if _, ok := uniqueUrls[hash]; !ok {
+							uniqueUrls[hash] = links[i]
+							pageContent, err := ReadCotent(links[i])
+							if err == nil {
+								links2, _ := GetTagValues(pageContent, "a", "href")
+								loopLinks(links2)
+							}
+
+						}
+					}
+				}
+			}
+		}
+		loopLinks(links)
+	}
+
+	return uniqueUrls, nil
 }
