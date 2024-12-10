@@ -7,7 +7,7 @@ import (
 	"runtime"
 )
 
-func LoadUi() {
+func LoadUi(loadUrl string) {
 
 	var PORT = os.Getenv("PORT")
 	var BASE_URL = os.Getenv("BASE_URL")
@@ -21,7 +21,6 @@ func LoadUi() {
 	}
 
 	var err error
-	var loadUrl = " --app=" + BASE_URL + ":" + PORT
 
 	switch runtime.GOOS {
 	case "windows":
