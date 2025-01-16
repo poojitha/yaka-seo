@@ -17,6 +17,8 @@ func main() {
 
 	r := gin.Default()
 
+	r.Static("/static", "./static")
+
 	var PORT = os.Getenv("PORT")
 	var BASE_URL = os.Getenv("BASE_URL")
 
