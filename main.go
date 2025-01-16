@@ -36,7 +36,7 @@ func main() {
 		})
 	})
 
-	r.GET("/ping", func(c *gin.Context) {
+	r.GET("/getLinks", func(c *gin.Context) {
 
 		crawlerInstance := crawler.NewCrawler()
 		var input = "https://www.schmackos.com.au/"
