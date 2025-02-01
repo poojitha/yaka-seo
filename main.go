@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -14,10 +15,7 @@ func init() {
 }
 
 func main() {
-
 	r := gin.Default()
-
-	r.Static("/static", "./static")
 
 	var PORT = os.Getenv("PORT")
 	var BASE_URL = os.Getenv("BASE_URL")
@@ -26,20 +24,17 @@ func main() {
 		PORT = "3837"
 	}
 
-	r.LoadHTMLGlob("html/*")
+	// 🔹 Serve static assets from Next.js build (e.g., JS, CSS, images)
+	r.StaticFS("/_next", http.Dir("frontend/out/_next"))
+	r.StaticFS("/static", http.Dir("frontend/out/static"))
 
-	var loadUrl = " --app=" + BASE_URL + ":" + PORT
-	utils.LoadUi(loadUrl)
-
-	r.GET("/", func(c *gin.Context) {
-		c.HTML(200, "main.html", gin.H{
-			"title":   "Welcome to Gin",
-			"message": "Dynamic content with Gin Templates!",
-		})
+	// 🔹 Catch-all: Serve Next.js `index.html` for frontend routes
+	r.NoRoute(func(c *gin.Context) {
+		c.File("frontend/out/index.html")
 	})
 
-	r.GET("/getLinks", func(c *gin.Context) {
-
+	// 🔹 API Route (Unchanged)
+	r.GET("/getAllCrawledLinks", func(c *gin.Context) {
 		crawlerInstance := crawler.NewCrawler()
 		var input = "https://www.schmackos.com.au/"
 		err := crawlerInstance.Crawl(input)
@@ -54,6 +49,8 @@ func main() {
 		})
 	})
 
-	r.Run()
-
+	var loadUrl = " --app=" + BASE_URL + ":" + PORT
+	utils.LoadUi(loadUrl)
+	// 🔹 Start the Gin server
+	r.Run(":" + PORT)
 }
