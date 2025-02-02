@@ -2,51 +2,32 @@ package utils
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"runtime"
 )
 
+// LoadUi opens the given URL in Google Chrome Incognito mode
 func LoadUi(loadUrl string) {
-
-	var PORT = os.Getenv("PORT")
-	var BASE_URL = os.Getenv("BASE_URL")
-
-	if PORT == "" {
-		PORT = "3837"
-	}
-
-	if BASE_URL == "" {
-		BASE_URL = "http://localhost"
-	}
+	fmt.Println("Opening browser in Incognito mode at:", loadUrl)
 
 	var err error
 
 	switch runtime.GOOS {
 	case "windows":
-		cmd := exec.Command("cmd", "/c", "start", "chrome", loadUrl)
-		err = cmd.Start()
-		if err == nil {
-			err = cmd.Wait()
-		}
+		// Windows: Open Chrome in Incognito
+		err = exec.Command("cmd", "/c", "start", "chrome", "--incognito", loadUrl).Start()
 	case "darwin":
-		cmd := exec.Command("open", "-a", "Google Chrome", loadUrl)
-		err = cmd.Start()
-		if err == nil {
-			err = cmd.Wait()
-		}
+		// macOS: Open Chrome in Incognito
+		err = exec.Command("open", "-a", "Google Chrome", "--args", "--incognito", loadUrl).Start()
 	case "linux":
-		cmd := exec.Command("google-chrome", loadUrl)
-		err = cmd.Start()
-		if err == nil {
-			err = cmd.Wait()
-		}
+		// Linux: Open Chrome in Incognito
+		err = exec.Command("google-chrome", "--incognito", loadUrl).Start()
 	default:
-		fmt.Println("Please install google chrome browser to run this application")
+		fmt.Println("Please install Google Chrome to run this application")
 		return
 	}
 
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Error opening browser:", err)
 	}
 }
