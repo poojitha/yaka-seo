@@ -26,7 +26,7 @@ func main() {
 
 	// 🔹 Serve static assets from Next.js build (e.g., JS, CSS, images)
 	r.StaticFS("/_next", http.Dir("frontend/out/_next"))
-	r.StaticFS("/static", http.Dir("frontend/out/static"))
+	r.StaticFS("/images", http.Dir("frontend/out/images"))
 
 	// 🔹 Catch-all: Serve Next.js `index.html` for frontend routes
 	r.NoRoute(func(c *gin.Context) {
