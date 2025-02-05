@@ -36,7 +36,7 @@ func main() {
 	// 🔹 API Route (Unchanged)
 	r.GET("/getAllCrawledLinks", func(c *gin.Context) {
 		crawlerInstance := crawler.NewCrawler()
-		var input = "https://www.schmackos.com.au/"
+		var input = "https://www.sunburysc.vic.edu.au/"
 		err := crawlerInstance.Crawl(input)
 		if err != nil {
 			gologger.Warning().Msgf("Could not crawl %s: %s", input, err.Error())
@@ -45,7 +45,7 @@ func main() {
 		}
 
 		c.JSON(200, gin.H{
-			"message": crawlerInstance.Links,
+			"links": crawlerInstance.Links,
 		})
 	})
 
