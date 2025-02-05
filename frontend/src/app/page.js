@@ -19,14 +19,15 @@ export default function SidebarWithSearch() {
         },
       });
       const data = await response.json();
-      setSearchResults(data.results || []);
+     
+      setSearchResults(data.links || []);
     } catch (error) {
       console.error("Error searching:", error);
     } finally {
       setLoading(false);
     }
   };
-
+console.log('searchResults',searchResults);
   return (
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar Toggle Button - Always Visible */}
@@ -72,7 +73,7 @@ export default function SidebarWithSearch() {
 
         {/* Search Results Table */}
         <div className="p-6"> 
-          <h1 className="text-2xl font-semibold text-gray-800">Search Results</h1>
+          <h1 className="text-2xl font-semibold text-gray-800">Search Results1</h1>
           {searchResults.length > 0 ? (
             <div className="overflow-x-auto mt-4">
               <table className="min-w-full bg-white border border-gray-300">
@@ -83,10 +84,10 @@ export default function SidebarWithSearch() {
                   </tr>
                 </thead>
                 <tbody>
-                  {searchResults.message.map((result, index) => (
+                  {searchResults.map((result, index) => (
                     <tr key={index}>
                       <td className="py-2 px-4 border-b">{index}</td>
-                      <td className="py-2 px-4 border-b text-blue-500 underline"><a href={result[index]} target="_blank" rel="noopener noreferrer">{result[index]}</a></td>
+                      <td className="py-2 px-4 border-b text-blue-500 underline"><a href={result} target="_blank" rel="noopener noreferrer">{result[index]}</a></td>
                     </tr>
                   ))}
                 </tbody>
