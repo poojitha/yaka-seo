@@ -36,17 +36,25 @@ func main() {
 	// 🔹 API Route (Unchanged)
 	r.GET("/getAllCrawledLinks", func(c *gin.Context) {
 		crawlerInstance := crawler.NewCrawler()
-		var input = "https://www.sunburysc.vic.edu.au/"
-		err := crawlerInstance.Crawl(input)
-		if err != nil {
-			gologger.Warning().Msgf("Could not crawl %s: %s", input, err.Error())
-			c.JSON(500, gin.H{"error": "Crawl failed"})
-			return
-		}
 
-		c.JSON(200, gin.H{
-			"links": crawlerInstance.Links,
-		})
+		var input = c.Query("query")
+		stdURL, _ := utils.StandardizeURL(input)
+		if input != "" {
+			err := crawlerInstance.Crawl(stdURL)
+			if err != nil {
+				gologger.Warning().Msgf("Could not crawl %s: %s", input, err.Error())
+				c.JSON(500, gin.H{"error": "Crawl failed"})
+				return
+			}
+
+			c.JSON(200, gin.H{
+				"links": crawlerInstance.Links,
+			})
+		} else {
+			c.JSON(200, gin.H{
+				"links": []string{},
+			})
+		}
 	})
 
 	var loadUrl = " --app=" + BASE_URL + ":" + PORT
