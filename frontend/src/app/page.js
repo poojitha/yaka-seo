@@ -82,34 +82,35 @@ export default function SidebarWithSearch() {
         <div className="p-6">
           {searchResults.length > 0 ? (
             <div className="overflow-x-auto mt-4">
-              <div className="h-150 overflow-y-auto border border-gray-300 rounded-md">
-                <table className="min-w-full border border-gray-300">
-                  <thead>
-                    <tr className="bg-gray-200 text-black">
-                      <th className="py-2 px-4 border-b text-left">Title</th>
-                      <th className="py-2 px-4 border-b text-left">URL</th>
+            <div className="max-h-150 overflow-y-auto border border-gray-300 rounded-md">
+              <table className="min-w-full border border-gray-300">
+                <thead className="bg-gray-200 text-black">
+                  <tr>
+                    <th className="py-2 px-4 border-b text-left">Title</th>
+                    <th className="py-2 px-4 border-b text-left">URL</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {searchResults.map((result, index) => (
+                    <tr key={index} className="text-black">
+                      <td className="py-2 px-4 border-b">{index}</td>
+                      <td className="py-2 px-4 border-b break-all">
+                        <a
+                          href={result}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-500 underline"
+                        >
+                          {result}
+                        </a>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {searchResults.map((result, index) => (
-                      <tr key={index} className="text-black">
-                        <td className="py-2 px-4 border-b">{index}</td>
-                        <td className="py-2 px-4 border-b">
-                          <a
-                            href={result}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-500 underline"
-                          >
-                            {result}
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
+          </div>
+          
           ) : (
             <p className="text-gray-700 mt-4">No results found.</p>
           )}
