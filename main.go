@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 
@@ -46,6 +47,12 @@ func main() {
 				c.JSON(500, gin.H{"error": "Crawl failed"})
 				return
 			}
+
+			fmt.Println("Images:", crawlerInstance.GetLinksByType("images"))
+			fmt.Println("PDFs:", crawlerInstance.GetLinksByType("pdfs"))
+			fmt.Println("CSS:", crawlerInstance.GetLinksByType("css"))
+			fmt.Println("HTML:", crawlerInstance.GetLinksByType("html"))
+			fmt.Printf("Total links found: %d\n", len(crawlerInstance.Links))
 
 			c.JSON(200, gin.H{
 				"links": crawlerInstance.Links,
