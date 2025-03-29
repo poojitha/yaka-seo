@@ -8,6 +8,7 @@ export default function SidebarWithSearch() {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [countInfo, setCountInfo] = useState([]);
 
   const handleSearch = async () => {
     setLoading(true);
@@ -20,6 +21,7 @@ export default function SidebarWithSearch() {
       });
       const data = await response.json();
       setSearchResults(data.links || []);
+      setCountInfo(data.count || []);
     } catch (error) {
       console.error("Error searching:", error);
     } finally {
@@ -74,6 +76,54 @@ export default function SidebarWithSearch() {
           <Search size={20} />
         )}
       </button>
+    </div>
+
+    <div class="container mx-auto">      
+      <h2 class="text-center text-2xl font-bold mb-6">Basic Site Information</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-4">
+            <div class="bg-white p-4 shadow rounded-lg text-black h-32 w-full">
+                <h5 class="text-lg font-semibold">Card 1</h5>
+                <p>HTML</p>
+                <div class="absolute hidden group-hover:block bg-gray-800 text-white text-sm rounded p-2 w-40 top-10 left-1/2 transform -translate-x-1/2">
+                    Additional information about Card 6.
+                </div>
+            </div>
+            <div class="bg-white p-4 shadow rounded-lg text-black h-32 w-full">
+                <h5 class="text-lg font-semibold">Card 2</h5>
+                <p>CSS</p>
+                <p>(.css)</p>
+            </div>
+            <div class="bg-white p-4 shadow rounded-lg text-black h-32 w-full">
+                <h5 class="text-lg font-semibold">Card 3</h5>
+                <p>JavaScript</p>
+                <p>(.js)</p>
+            </div>
+            <div class="bg-white p-4 shadow rounded-lg text-black h-32 w-full">
+                <h5 class="text-lg font-semibold">Card 4</h5>
+                <p>Image</p>
+                <p>(.jpg, .jpeg,.png,.gif,.svg,.webp)</p>
+            </div>
+            <div class="bg-white p-4 shadow rounded-lg text-black h-32 w-full">
+                <h5 class="text-lg font-semibold">Card 5</h5>
+                <p>Multimedia</p>
+                <p>(.mp4,.mp3,.webm,.ogg)</p>
+            </div>
+            <div class="bg-white p-4 shadow rounded-lg text-black h-32 w-full">
+                <h5 class="text-lg font-semibold">Card 6</h5>
+                <p>Document</p>
+                <p>(.pdf)</p>
+            </div>
+            <div class="bg-white p-4 shadow rounded-lg text-black h-32 w-full">
+                <h5 class="text-lg font-semibold">Card 7</h5>
+                <p>Scripting</p>
+                <p>(.php,.asp)</p>
+            </div>
+            <div class="bg-white p-4 shadow rounded-lg text-black h-32 w-full">
+                <h5 class="text-lg font-semibold">Card 8</h5>
+                <p> Other Files</p>
+                <p> (.json,.xml)</p>
+            </div>
+        </div>
     </div>
 
     {/* Search Results Table */}

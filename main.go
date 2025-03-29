@@ -54,8 +54,16 @@ func main() {
 			fmt.Println("HTML:", crawlerInstance.GetLinksByType("html"))
 			fmt.Printf("Total links found: %d\n", len(crawlerInstance.Links))
 
+			fileTypeCounts := map[string]int{
+				"image": len(crawlerInstance.GetLinksByType("images")),
+				"pfd":   len(crawlerInstance.GetLinksByType("pdfs")),
+				"css":   len(crawlerInstance.GetLinksByType("css")),
+				"html":  len(crawlerInstance.GetLinksByType("html")),
+			}
+
 			c.JSON(200, gin.H{
 				"links": crawlerInstance.Links,
+				"count": fileTypeCounts,
 			})
 		} else {
 			c.JSON(200, gin.H{
