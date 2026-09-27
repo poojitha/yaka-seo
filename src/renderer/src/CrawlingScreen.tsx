@@ -1,4 +1,5 @@
 import type { CrawlProgress } from '@shared/types';
+import logo from './assets/logo.png';
 
 interface Props {
     startUrl: string;
@@ -22,7 +23,9 @@ export function CrawlingScreen({ startUrl, maxPages, progress, currentUrl, crawl
         <div className="start-screen">
             <div className="start-card crawling">
                 <div className={`loader ${status === 'finished' ? 'ok' : status === 'error' ? 'fail' : ''}`}>
-                    {done ? <span className="loader-icon">{status === 'finished' ? '✓' : '!'}</span> : <span className="loader-ring" />}
+                    {!done && <span className="loader-ring" />}
+                    <img className="loader-logo" src={logo} alt="" />
+                    {done && <span className="loader-badge">{status === 'finished' ? '✓' : '!'}</span>}
                 </div>
                 <h1>{heading}</h1>
                 <div className="crawl-target" title={startUrl}>{startUrl}</div>

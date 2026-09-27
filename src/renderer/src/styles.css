@@ -135,33 +135,65 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .crawling .current-url .error { color: var(--bad); white-space: normal; }
 .crawling-actions { display: flex; gap: 8px; }
 .crawling-actions button { min-width: 110px; padding: 8px; }
-
-.loader { position: relative; width: 72px; height: 72px; display: flex; align-items: center; justify-content: center; }
-/* Two arcs spinning at different speeds, plus a soft pulse behind them. */
+/* Logo with a halo: a soft breathing glow, plus two comet-tail arcs orbiting in opposite directions. */
+.loader { position: relative; width: 168px; height: 168px; display: flex; align-items: center; justify-content: center; }
 .loader::before {
     content: '';
     position: absolute;
-    inset: 12px;
+    inset: 14px;
     border-radius: 50%;
-    background: var(--accent);
-    opacity: 0.15;
-    animation: loader-pulse 1.6s ease-in-out infinite;
+    background: radial-gradient(circle, transparent 55%, var(--accent) 100%);
+    opacity: 0.35;
+    filter: blur(10px);
+    animation: loader-breathe 2.4s ease-in-out infinite;
 }
-.loader-ring, .loader-ring::after {
+.loader-ring, .loader:not(.ok):not(.fail)::after {
     position: absolute;
     border-radius: 50%;
-    border: 4px solid transparent;
+    /* Conic gradient masked down to a thin ring gives an arc that fades out behind its head. */
+    background: conic-gradient(from 0deg, transparent 0deg, transparent 90deg, var(--accent) 360deg);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+    mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
 }
-.loader-ring { inset: 0; border-top-color: var(--accent); border-right-color: var(--accent); animation: loader-spin 1s linear infinite; }
-.loader-ring::after { content: ''; inset: 6px; border-bottom-color: var(--accent); opacity: 0.6; animation: loader-spin 1.6s linear infinite reverse; }
-.loader.ok::before, .loader.fail::before { animation: none; opacity: 1; inset: 0; }
-.loader.fail::before { background: var(--bad); }
-.loader-icon { position: relative; color: #fff; font-size: 34px; font-weight: 700; animation: loader-pop 0.3s ease-out; }
+.loader-ring { inset: 0; animation: loader-spin 1.4s linear infinite; }
+/* Second arc lives on .loader, not inside .loader-ring, whose mask would clip it. */
+.loader:not(.ok):not(.fail)::after { content: ''; inset: 12px; opacity: 0.45; animation: loader-spin 2.2s linear infinite reverse; }
+.loader-logo { position: relative; width: 116px; height: 116px; }
+
+/* Finished / failed: the halo settles into a solid ring with a badge. */
+.loader.ok::before, .loader.fail::before {
+    inset: 0;
+    background: none;
+    border: 3px solid var(--accent);
+    filter: none;
+    opacity: 1;
+    animation: loader-settle 0.4s ease-out;
+}
+.loader.fail::before { border-color: var(--bad); }
+.loader-badge {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    border: 3px solid var(--bg);
+    color: #fff;
+    font-size: 18px;
+    font-weight: 700;
+    animation: loader-pop 0.3s ease-out;
+}
+.loader.fail .loader-badge { background: var(--bad); }
 
 @keyframes loader-spin { to { transform: rotate(360deg); } }
-@keyframes loader-pulse { 0%, 100% { transform: scale(0.8); } 50% { transform: scale(1.1); } }
+@keyframes loader-breathe { 0%, 100% { transform: scale(0.94); opacity: 0.25; } 50% { transform: scale(1.06); opacity: 0.5; } }
+@keyframes loader-settle { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes loader-pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
-    .loader::before, .loader-ring, .loader-ring::after, .loader-icon { animation-duration: 3s; }
+    .loader::before, .loader::after, .loader-ring { animation-duration: 4s; }
 }
