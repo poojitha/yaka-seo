@@ -82,6 +82,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .statusbar { border-top: 1px solid var(--border); border-bottom: none; gap: 16px; color: var(--muted); }
 .statusbar .error { color: var(--bad); }
 
+.toolbar .toolbar-logo { width: 24px; height: 24px; flex: none; }
 .toolbar .crawl-url { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .start-screen { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--panel); }
@@ -99,7 +100,10 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     border-radius: 8px;
     position: relative;
 }
+.start-card .brand { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.start-card .brand img { width: 128px; height: 128px; }
 .start-card h1 { margin: 0; font-size: 22px; }
+.start-card .brand-sep { margin: 0 4px; color: var(--accent); font-weight: 400; }
 .start-card .field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 .start-card .url { font-size: 15px; padding: 8px 10px; }
 .start-card .settings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }

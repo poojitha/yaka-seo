@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { CrawlOptions } from '@shared/types';
+import logo from './assets/logo.png';
 
 interface Props {
     initial: CrawlOptions;
@@ -32,7 +33,12 @@ export function StartScreen({ initial, onStart, onClose }: Props) {
                 <button type="button" className="close" onClick={onClose} title="Close" aria-label="Close">
                     ×
                 </button>
-                <h1>ScreamingAI</h1>
+                <div className="brand">
+                    <img src={logo} alt="" />
+                    <h1>
+                        Yaka<span className="brand-sep">|</span>SEO
+                    </h1>
+                </div>
                 <label className="field">
                     <span>Website URL</span>
                     <input

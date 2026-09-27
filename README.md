@@ -1,8 +1,8 @@
-# ScreamingAI
+# Yaka|SEO
 
 A desktop SEO crawler in the style of Screaming Frog, built with **Electron**, **TypeScript**, **Crawlee** and **Playwright**.
 
-Enter a URL and ScreamingAI crawls the site. It records each page's status code, title, meta description, headings, canonical, indexability, word count and link counts. It can also render JavaScript-heavy sites in headless Chromium. Issue filters flag common SEO problems, and results can be exported to CSV.
+Enter a URL and Yaka|SEO crawls the site. It records each page's status code, title, meta description, headings, canonical, indexability, word count and link counts. It can also render JavaScript-heavy sites in headless Chromium. Issue filters flag common SEO problems, and results can be exported to CSV.
 
 ---
 
@@ -101,6 +101,20 @@ Runs `tsc --noEmit` against both TypeScript projects:
 
 The build itself uses esbuild, which does **not** type-check, so run this before committing.
 
+### Tests
+
+```bash
+npm test             # run everything once (~25 s)
+npm run test:watch   # re-run on change
+npx vitest run --project renderer   # only the React tests (fast)
+```
+
+Tests use [Vitest](https://vitest.dev/) and live in `tests/`, which mirrors `src/` (`tests/main/`, `tests/renderer/`). There are two projects in `vitest.config.ts`:
+- **main** (Node): `extract`, `csv`, the IPC handlers in `index.ts` (Electron is mocked), and `SiteCrawler`. The crawler tests start a small local HTTP site and run real crawls in both modes, so they need the Playwright Chromium from `postinstall`.
+- **renderer** (jsdom + Testing Library): the filters, the start and crawling screens, the results table and the full app flow, with `window.api` mocked.
+
+Shared test data (`makeResult()`) is in `tests/fixtures.ts`.
+
 ### 4. Running the crawler without Electron (headless / scripting)
 
 `SiteCrawler` in `src/main/crawler.ts` doesn't depend on Electron, so you can drive it from a plain Node script. This is handy for tests or command-line use. Bundle it with esbuild (installed with Vite):
@@ -135,6 +149,8 @@ Packaging isn't configured yet. The planned approach is [electron-builder](https
 | `npm run build` | Production build into `out/` |
 | `npm run preview` | Run the production build |
 | `npm run typecheck` | Type-check all TypeScript |
+| `npm test` | Run the Vitest suite once |
+| `npm run test:watch` | Run Vitest in watch mode |
 | `postinstall` | Downloads Playwright Chromium (runs automatically) |
 
 `dev` and `preview` go through `scripts/electron-vite.cjs`, which clears `ELECTRON_RUN_AS_NODE` first (see [Troubleshooting](#troubleshooting)).
@@ -143,7 +159,7 @@ Packaging isn't configured yet. The planned approach is [electron-builder](https
 
 ## Architecture
 
-Electron apps run as separate processes. ScreamingAI keeps all crawling in the **main process** (Node.js), keeps the **renderer** (Chromium) purely for UI, and connects them through a small, typed **preload bridge**.
+Electron apps run as separate processes. Yaka|SEO keeps all crawling in the **main process** (Node.js), keeps the **renderer** (Chromium) purely for UI, and connects them through a small, typed **preload bridge**.
 
 ```
 ┌──────────────────────────── Renderer process (Chromium, React UI) ─────────────────────────┐
@@ -237,6 +253,9 @@ ScreamingAI/
 ├── tsconfig.json             # references the two projects below
 ├── tsconfig.node.json        # main + preload + shared (Node types)
 ├── tsconfig.web.json         # renderer + shared (DOM types, JSX)
+├── vitest.config.ts          # test projects: main (node) + renderer (jsdom)
+├── resources/
+│   └── icon.png              # full-size logo; window icon (imported with ?asset in main)
 ├── scripts/
 │   └── electron-vite.cjs     # clears ELECTRON_RUN_AS_NODE, then runs electron-vite
 ├── src/
@@ -254,11 +273,18 @@ ScreamingAI/
 │       ├── index.html
 │       └── src/
 │           ├── main.tsx      # React entry
-│           ├── App.tsx       # toolbar, filter tabs, details panel, status bar
+│           ├── App.tsx       # screen switching, results toolbar, filter tabs, details, status bar
+│           ├── StartScreen.tsx     # URL + crawl settings
+│           ├── CrawlingScreen.tsx  # spinner, current URL, progress, Continue
 │           ├── ResultsTable.tsx
 │           ├── filters.ts    # issue filter definitions
 │           ├── styles.css    # light/dark theme
+│           ├── assets/       # images imported by components (logo.png, 256 px)
 │           └── env.d.ts      # Vite client types
+├── tests/                    # Vitest, mirrors src/
+│   ├── fixtures.ts           # makeResult() for PageResult rows
+│   ├── main/                 # extract, csv, IPC (index), SiteCrawler against a local server
+│   └── renderer/             # setup.ts, filters, screens, table, App flow
 └── out/                      # build output (git-ignored)
 ```
 

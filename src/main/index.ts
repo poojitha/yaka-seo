@@ -4,6 +4,8 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import type { CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
 import { SiteCrawler } from './crawler';
 import { toCsv } from './csv';
+// electron-vite copies ?asset imports into out/ and resolves them to a file path at runtime.
+import icon from '../../resources/icon.png?asset';
 
 // Keep Crawlee from creating ./storage in whatever directory the app was launched from.
 process.env.CRAWLEE_STORAGE_DIR = join(app.getPath('userData'), 'crawlee-storage');
@@ -15,7 +17,8 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
         height: 900,
-        title: 'ScreamingAI',
+        title: 'Yaka|SEO',
+        icon,
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             contextIsolation: true,

@@ -4,6 +4,7 @@ import { FILTERS } from './filters';
 import { ResultsTable } from './ResultsTable';
 import { CrawlingScreen } from './CrawlingScreen';
 import { StartScreen } from './StartScreen';
+import logo from './assets/logo.png';
 
 export function App() {
     // Kept here (not in StartScreen) so "New crawl" reopens the setup screen with the last settings.
@@ -69,6 +70,7 @@ export function App() {
     return (
         <div className="app">
             <div className="toolbar">
+                <img className="toolbar-logo" src={logo} alt="Yaka|SEO" />
                 <span className="crawl-url" title={options.startUrl}>{options.startUrl}</span>
                 {running ? (
                     <button type="button" onClick={stop} disabled={progress.status === 'stopping'}>

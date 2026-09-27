@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-ScreamingAI is a desktop SEO crawler (Screaming Frog style) built with Electron + electron-vite, React 19, TypeScript 7, Crawlee 3 and Playwright. README.md is detailed and current; read it for the full data-field list, troubleshooting and roadmap.
+Yaka|SEO (repo and package name: ScreamingAI) is a desktop SEO crawler (Screaming Frog style) built with Electron + electron-vite, React 19, TypeScript 7, Crawlee 3 and Playwright. README.md is detailed and current; read it for the full data-field list, troubleshooting and roadmap.
 
 ## Commands
 
@@ -12,9 +12,12 @@ npm run dev          # Vite dev server + Electron; renderer hot-reloads, main/pr
 npm run build        # compile main, preload, renderer into out/
 npm run preview      # run Electron against out/
 npm run typecheck    # tsc --noEmit on tsconfig.node.json and tsconfig.web.json
+npm test             # Vitest: main (node) + renderer (jsdom) projects
+npx vitest run tests/main/extract.test.ts   # single file; -t "name" for a single test
 ```
 
-- There is no test suite and no linter. The build uses esbuild, which does **not** type-check, so `npm run typecheck` is the only correctness gate — run it after changes.
+- There is no linter. The build uses esbuild, which does **not** type-check, so run `npm run typecheck` and `npm test` after changes.
+- Tests live in `tests/main/` and `tests/renderer/` (mirroring `src/`), and each tsconfig includes its half. Crawler tests run real crawls against a local HTTP server (see the site map at the top of `tests/main/crawler.test.ts`); `index.test.ts` mocks `electron` and `src/main/crawler`; renderer tests mock `window.api`. Use `makeResult()` from `tests/fixtures.ts` for `PageResult` rows, and load Cheerio via `tests/main/test-utils.ts` (it is only installed nested under crawlee).
 - `dev`/`preview` go through `scripts/electron-vite.cjs`, which clears `ELECTRON_RUN_AS_NODE` (set by VS Code's terminal; it makes Electron run as plain Node and crash on `app.getPath`). Don't call `electron-vite` directly without unsetting it.
 - `SiteCrawler` has no Electron dependency, so it can be exercised headlessly by bundling a script with esbuild (`--platform=node --format=esm --packages=external --alias:@shared=./src/shared`). See README "Running the crawler without Electron".
 
