@@ -1,3 +1,7 @@
+/*
+ * Theme tokens. Components use only these variables, so a theme is just a new set of values.
+ * Dark mode follows the OS, and can be forced either way with <html data-theme="light|dark">.
+ */
 :root {
     --bg: #ffffff;
     --panel: #f4f5f7;
@@ -5,15 +9,25 @@
     --text: #1d2129;
     --muted: #6b7280;
     --accent: #5aa832;
+    --on-accent: #ffffff;
     --selected: #dbeafe;
     --bad: #b42318;
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    --on-bad: #ffffff;
+
+    --font: 'Segoe UI', system-ui, sans-serif;
+    --font-mono: Consolas, 'Cascadia Mono', monospace;
+    --radius: 4px;
+    --radius-lg: 8px;
+
+    color-scheme: light;
+    font-family: var(--font);
     font-size: 13px;
     color: var(--text);
 }
 
+/* The dark values appear twice: once for the OS preference, once for an explicit data-theme="dark". */
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme='light']) {
         --bg: #16181d;
         --panel: #1f2229;
         --border: #30343d;
@@ -21,7 +35,20 @@
         --muted: #9ca3af;
         --selected: #1e3a5f;
         --bad: #f97066;
+        --on-bad: #16181d;
+        color-scheme: dark;
     }
+}
+:root[data-theme='dark'] {
+    --bg: #16181d;
+    --panel: #1f2229;
+    --border: #30343d;
+    --text: #e5e7eb;
+    --muted: #9ca3af;
+    --selected: #1e3a5f;
+    --bad: #f97066;
+    --on-bad: #16181d;
+    color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -46,12 +73,12 @@ input, button {
     color: var(--text);
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius);
     padding: 4px 8px;
 }
 button { cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 .filters { flex-wrap: wrap; gap: 4px; }
 .filters button.active { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
@@ -97,7 +124,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     padding: 32px 10%;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     position: relative;
 }
 .start-card .brand { display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -125,8 +152,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     min-height: 34px;
     padding: 8px 12px;
     background: var(--panel);
-    border-radius: 4px;
-    font-family: Consolas, 'Cascadia Mono', monospace;
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
     font-size: 12px;
     white-space: nowrap;
     overflow: hidden;
@@ -152,6 +179,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     border-radius: 50%;
     /* Conic gradient masked down to a thin ring gives an arc that fades out behind its head. */
     background: conic-gradient(from 0deg, transparent 0deg, transparent 90deg, var(--accent) 360deg);
+    /* The mask colour is only an opacity value (opaque = visible), not a theme colour. */
     -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
     mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
 }
@@ -182,12 +210,12 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     justify-content: center;
     background: var(--accent);
     border: 3px solid var(--bg);
-    color: #fff;
+    color: var(--on-accent);
     font-size: 18px;
     font-weight: 700;
     animation: loader-pop 0.3s ease-out;
 }
-.loader.fail .loader-badge { background: var(--bad); }
+.loader.fail .loader-badge { background: var(--bad); color: var(--on-bad); }
 
 @keyframes loader-spin { to { transform: rotate(360deg); } }
 @keyframes loader-breathe { 0%, 100% { transform: scale(0.94); opacity: 0.25; } 50% { transform: scale(1.06); opacity: 0.5; } }
