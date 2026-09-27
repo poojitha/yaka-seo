@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
 import { FILTERS } from './filters';
 import { ResultsTable } from './ResultsTable';
+import { CrawlingScreen } from './CrawlingScreen';
 import { StartScreen } from './StartScreen';
 
 export function App() {
     // Kept here (not in StartScreen) so "New crawl" reopens the setup screen with the last settings.
-    const [options, setOptions] = useState<CrawlOptions>({ startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: false });
-    const [screen, setScreen] = useState<'setup' | 'results'>('setup');
+    const [options, setOptions] = useState<CrawlOptions>({ startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true });
+    const [screen, setScreen] = useState<'setup' | 'crawling' | 'results'>('setup');
 
     const [results, setResults] = useState<PageResult[]>([]);
     const [progress, setProgress] = useState<CrawlProgress>({ status: 'idle', crawled: 0 });
@@ -33,7 +34,7 @@ export function App() {
         setFilterId('all');
         setSearch('');
         setProgress({ status: 'idle', crawled: 0 });
-        setScreen('results');
+        setScreen('crawling');
         await window.api.startCrawl(opts);
     };
 
@@ -51,6 +52,19 @@ export function App() {
     }, [results, filterId, search]);
 
     if (screen === 'setup') return <StartScreen initial={options} onStart={start} onClose={() => setScreen('results')} />;
+    if (screen === 'crawling') {
+        return (
+            <CrawlingScreen
+                startUrl={options.startUrl}
+                maxPages={options.maxPages}
+                progress={progress}
+                currentUrl={results.at(-1)?.url ?? ''}
+                crawled={results.length}
+                onStop={stop}
+                onContinue={() => setScreen('results')}
+            />
+        );
+    }
 
     return (
         <div className="app">

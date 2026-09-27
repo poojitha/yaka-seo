@@ -25,7 +25,7 @@ Enter a URL and ScreamingAI crawls the site. It records each page's status code,
 
 - **Two crawl modes**
   - **Fast HTML mode** (`CheerioCrawler`): plain HTTP requests plus HTML parsing, for server-rendered sites.
-  - **Render JavaScript mode** (`PlaywrightCrawler`): loads each page in headless Chromium, for sites built with React, Vue, Angular and similar.
+  - **Render JavaScript mode** (`PlaywrightCrawler`): loads each page in headless Chromium, for sites built with React, Vue, Angular and similar. This is the default.
 - **Respects robots.txt.**
 - **Crawl limits:** max pages, max depth and concurrency (threads).
 - **Stays on the start URL's hostname.**

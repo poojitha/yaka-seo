@@ -108,3 +108,56 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .start-card button.primary { padding: 8px; font-size: 15px; }
 .start-card .close { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; padding: 0; font-size: 20px; line-height: 1; border: none; background: none; color: var(--muted); }
 .start-card .close:hover { color: var(--text); background: var(--panel); }
+
+/* Crawling screen: reuses the start-card layout, centred content. */
+.start-card.crawling { align-items: center; text-align: center; }
+.crawling .crawl-target { color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crawling .progress-bar { width: 100%; max-width: 420px; height: 6px; background: var(--panel); border-radius: 3px; overflow: hidden; }
+.crawling .progress-bar > div { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+.crawling .crawl-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.crawling .current-url {
+    width: 100%;
+    max-width: 560px;
+    min-height: 34px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-radius: 4px;
+    font-family: Consolas, 'Cascadia Mono', monospace;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.crawling .current-url .error { color: var(--bad); white-space: normal; }
+.crawling-actions { display: flex; gap: 8px; }
+.crawling-actions button { min-width: 110px; padding: 8px; }
+
+.loader { position: relative; width: 72px; height: 72px; display: flex; align-items: center; justify-content: center; }
+/* Two arcs spinning at different speeds, plus a soft pulse behind them. */
+.loader::before {
+    content: '';
+    position: absolute;
+    inset: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.15;
+    animation: loader-pulse 1.6s ease-in-out infinite;
+}
+.loader-ring, .loader-ring::after {
+    position: absolute;
+    border-radius: 50%;
+    border: 4px solid transparent;
+}
+.loader-ring { inset: 0; border-top-color: var(--accent); border-right-color: var(--accent); animation: loader-spin 1s linear infinite; }
+.loader-ring::after { content: ''; inset: 6px; border-bottom-color: var(--accent); opacity: 0.6; animation: loader-spin 1.6s linear infinite reverse; }
+.loader.ok::before, .loader.fail::before { animation: none; opacity: 1; inset: 0; }
+.loader.fail::before { background: var(--bad); }
+.loader-icon { position: relative; color: #fff; font-size: 34px; font-weight: 700; animation: loader-pop 0.3s ease-out; }
+
+@keyframes loader-spin { to { transform: rotate(360deg); } }
+@keyframes loader-pulse { 0%, 100% { transform: scale(0.8); } 50% { transform: scale(1.1); } }
+@keyframes loader-pop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .loader::before, .loader-ring, .loader-ring::after, .loader-icon { animation-duration: 3s; }
+}
