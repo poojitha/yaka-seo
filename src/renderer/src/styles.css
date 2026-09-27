@@ -81,3 +81,30 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 
 .statusbar { border-top: 1px solid var(--border); border-bottom: none; gap: 16px; color: var(--muted); }
 .statusbar .error { color: var(--bad); }
+
+.toolbar .crawl-url { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.start-screen { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--panel); }
+.start-card {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    justify-content: center;
+    width: 90%;
+    height: 90%;
+    overflow: auto;
+    padding: 32px 10%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    position: relative;
+}
+.start-card h1 { margin: 0; font-size: 22px; }
+.start-card .field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+.start-card .url { font-size: 15px; padding: 8px 10px; }
+.start-card .settings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.start-card .check { display: flex; align-items: center; gap: 6px; }
+.start-card .error { color: var(--bad); }
+.start-card button.primary { padding: 8px; font-size: 15px; }
+.start-card .close { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; padding: 0; font-size: 20px; line-height: 1; border: none; background: none; color: var(--muted); }
+.start-card .close:hover { color: var(--text); background: var(--panel); }

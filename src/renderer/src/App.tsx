@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import type { CrawlProgress, PageResult } from '@shared/types';
+import { useEffect, useMemo, useState } from 'react';
+import type { CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
 import { FILTERS } from './filters';
 import { ResultsTable } from './ResultsTable';
+import { StartScreen } from './StartScreen';
 
 export function App() {
-    const [startUrl, setStartUrl] = useState('https://');
-    const [maxPages, setMaxPages] = useState(500);
-    const [maxDepth, setMaxDepth] = useState(10);
-    const [concurrency, setConcurrency] = useState(10);
-    const [renderJs, setRenderJs] = useState(false);
+    // Kept here (not in StartScreen) so "New crawl" reopens the setup screen with the last settings.
+    const [options, setOptions] = useState<CrawlOptions>({ startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: false });
+    const [screen, setScreen] = useState<'setup' | 'results'>('setup');
 
     const [results, setResults] = useState<PageResult[]>([]);
     const [progress, setProgress] = useState<CrawlProgress>({ status: 'idle', crawled: 0 });
@@ -27,17 +26,15 @@ export function App() {
 
     const running = progress.status === 'running' || progress.status === 'stopping';
 
-    const start = async (e: FormEvent) => {
-        e.preventDefault();
-        try {
-            new URL(startUrl);
-        } catch {
-            setProgress({ status: 'error', crawled: 0, message: 'Enter a valid URL, e.g. https://example.com' });
-            return;
-        }
+    const start = async (opts: CrawlOptions) => {
+        setOptions(opts);
         setResults([]);
         setSelected(null);
-        await window.api.startCrawl({ startUrl, maxPages, maxDepth, concurrency, renderJs });
+        setFilterId('all');
+        setSearch('');
+        setProgress({ status: 'idle', crawled: 0 });
+        setScreen('results');
+        await window.api.startCrawl(opts);
     };
 
     const stop = async () => {
@@ -53,33 +50,25 @@ export function App() {
         return results.filter((r) => filter.test(r) && (!q || r.url.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)));
     }, [results, filterId, search]);
 
+    if (screen === 'setup') return <StartScreen initial={options} onStart={start} onClose={() => setScreen('results')} />;
+
     return (
         <div className="app">
-            <form className="toolbar" onSubmit={start}>
-                <input className="url" value={startUrl} onChange={(e) => setStartUrl(e.target.value)} disabled={running} />
-                <label>
-                    Max pages <input type="number" min={1} value={maxPages} onChange={(e) => setMaxPages(+e.target.value)} disabled={running} />
-                </label>
-                <label>
-                    Depth <input type="number" min={0} value={maxDepth} onChange={(e) => setMaxDepth(+e.target.value)} disabled={running} />
-                </label>
-                <label>
-                    Threads <input type="number" min={1} max={50} value={concurrency} onChange={(e) => setConcurrency(+e.target.value)} disabled={running} />
-                </label>
-                <label className="check">
-                    <input type="checkbox" checked={renderJs} onChange={(e) => setRenderJs(e.target.checked)} disabled={running} /> Render JavaScript
-                </label>
+            <div className="toolbar">
+                <span className="crawl-url" title={options.startUrl}>{options.startUrl}</span>
                 {running ? (
                     <button type="button" onClick={stop} disabled={progress.status === 'stopping'}>
                         {progress.status === 'stopping' ? 'Stopping…' : 'Stop'}
                     </button>
                 ) : (
-                    <button type="submit" className="primary">Start</button>
+                    <button type="button" className="primary" onClick={() => setScreen('setup')}>
+                        New crawl
+                    </button>
                 )}
                 <button type="button" onClick={() => window.api.exportCsv(visible)} disabled={visible.length === 0}>
                     Export CSV
                 </button>
-            </form>
+            </div>
 
             <div className="filters">
                 {FILTERS.map((f) => (
