@@ -10,14 +10,24 @@ type OnPage = (result: PageResult) => void;
 /** Runs one crawl at a time using either a fast HTML crawler or a headless-browser crawler. */
 export class SiteCrawler {
     private crawler: CheerioCrawler | PlaywrightCrawler | null = null;
+    private busy = false;
 
     get isRunning() {
-        return this.crawler !== null;
+        return this.busy;
     }
 
     async run(options: CrawlOptions, onPage: OnPage): Promise<void> {
-        if (this.crawler) throw new Error('A crawl is already running');
+        if (this.busy) throw new Error('A crawl is already running');
+        // Claimed before the first await; `this.crawler` is only set after setup, so checking it let a second run slip in.
+        this.busy = true;
+        try {
+            await this.crawl(options, onPage);
+        } finally {
+            this.busy = false;
+        }
+    }
 
+    private async crawl(options: CrawlOptions, onPage: OnPage): Promise<void> {
         // Fresh in-memory storage per crawl so a previous crawl's queue doesn't mark URLs as already handled.
         const config = new Configuration({ persistStorage: false, purgeOnStart: true });
         const requestQueue = await RequestQueue.open(`crawl-${Date.now()}`, { config });

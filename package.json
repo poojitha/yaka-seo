@@ -10,6 +10,8 @@
     "build": "electron-vite build",
     "preview": "node scripts/electron-vite.cjs preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {
@@ -19,13 +21,17 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.4.5",
     "electron-vite": "^5.0.0",
+    "jsdom": "^29.1.1",
     "typescript": "^7.0.2",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^5.0.2"
   }
 }
