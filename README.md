@@ -308,20 +308,39 @@ ScreamingAI/
 
 | Field | Description |
 |---|---|
-| `url` | Requested URL |
+| `url`, `urlEncoded` | Requested URL, and its percent-encoded form |
 | `finalUrl` | URL after redirects (only set if different) |
-| `status` | HTTP status code (`null` if the request failed) |
+| `redirectType` | `HTTP Redirect` or `JavaScript Redirect` when `finalUrl` is set, `Meta Refresh` when the page has a meta refresh with a URL |
+| `status`, `statusText` | HTTP status code (`null` if the request failed) and its standard reason phrase (`Not Found`) |
 | `contentType` | `Content-Type` response header |
+| `httpVersion` | Protocol version: `1.1`, `2` or `3` |
+| `lastModified` | `Last-Modified` response header |
+| `cookies` | Names of cookies set by `Set-Cookie` headers |
 | `depth` | Clicks from the start URL |
+| `folderDepth` | Non-empty path segments (`/` is 0, `/blog/post` is 2) |
 | `responseTimeMs` | Time from navigation start to handler (includes rendering in JS mode) |
+| `crawlTimestamp` | When the page was processed (ISO 8601) |
+| `sizeBytes`, `hash` | Uncompressed size and MD5 of the response body. Equal hashes mean exact duplicates. In JS mode these are for the raw HTML, not the rendered DOM. |
 | `title`, `titleLength` | `<title>` text and length |
 | `metaDescription`, `metaDescriptionLength` | Meta description and length |
-| `h1`, `h1Count`, `h2Count` | First H1 text, H1 count, H2 count |
+| `metaKeywords`, `metaKeywordsLength` | Meta keywords and length (ignored by Google) |
+| `h1`, `h1Length`, `h1Second`, `h1SecondLength`, `h1Count` | First and second H1 text and lengths, H1 count |
+| `h2`, `h2Length`, `h2Count` | First H2 text and length, H2 count |
 | `canonical` | Absolute canonical URL |
-| `metaRobots` | Meta robots content |
-| `indexable`, `indexabilityReason` | `false` with a reason for non-2xx status, `noindex` (meta or X-Robots-Tag), or a canonical pointing elsewhere |
+| `metaRobots`, `metaRobots2` | First and second meta robots tags (lower-cased) |
+| `xRobotsTag` | `X-Robots-Tag` response header |
+| `metaRefresh` | `content` of `<meta http-equiv="refresh">` |
+| `relNext`, `relPrev` | Pagination links from `<link rel="next/prev">` |
+| `httpRelNext`, `httpRelPrev` | Pagination links from the HTTP `Link` header |
+| `amphtml`, `mobileAlternate` | `<link rel="amphtml">` and `<link rel="alternate" media="...">` URLs |
+| `language` | `<html lang>` |
+| `indexable`, `indexabilityReason` | `false` with a reason for non-2xx status, `noindex` (either meta robots tag, or X-Robots-Tag), or a canonical pointing elsewhere |
 | `wordCount` | Words in body text (scripts and styles excluded) |
-| `internalLinks`, `externalLinks` | Link counts by hostname |
+| `sentenceCount`, `avgWordsPerSentence` | Sentences end at `.`, `!`, `?` and at block elements such as headings, list items and cells |
+| `fleschReadingEase`, `readability` | Flesch reading ease (English formula, higher is easier) and its band: Very Easy, Easy, Fairly Easy, Normal, Fairly Difficult, Difficult, Very Difficult |
+| `textRatio` | Visible text characters as a percentage of HTML characters |
+| `internalLinks`, `uniqueInternalLinks` | Links to the same hostname: all, and distinct URLs |
+| `externalLinks`, `uniqueExternalLinks` | Links to other hostnames: all, and distinct URLs |
 | `imagesMissingAlt` | `<img>` elements with no or empty `alt` |
 | `error` | First line of the error message for failed requests |
 

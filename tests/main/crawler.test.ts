@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -21,7 +22,8 @@ import { SiteCrawler } from '../../src/main/crawler';
  *   ├─ /private/...      disallowed by robots.txt
  *   └─ localhost / example.org links: other hostnames, out of scope
  *
- * Unlinked: /slow (concurrency), /spa (JavaScript), /blocked and /challenge (bot protection).
+ * Unlinked: /slow (concurrency), /spa (JavaScript), /blocked and /challenge (bot protection),
+ * /docs/guide/page (response headers, size and hash).
  */
 const html = (body: string, head = '') => `<!doctype html><html><head>${head}</head><body>${body}</body></html>`;
 const links = (...paths: string[]) => paths.map((p) => `<a href="${p}">${p}</a>`).join('\n');
@@ -85,7 +87,19 @@ const routes: Record<string, Route> = {
     '/blocked': page('<h1>Access Denied</h1>', '<title>Access Denied</title>', 403, { server: 'AkamaiGHost' }),
     '/challenge': page(`<div id="sec-if-cpt-container"></div>${links('/from-challenge')}`),
     '/from-challenge': page('<p>should never be crawled</p>'),
+
+    // Response-level fields: headers the crawler reports, and a fixed body for size and hash.
+    '/docs/guide/page': (_req, res) => {
+        res.writeHead(200, {
+            'content-type': 'text/html; charset=utf-8',
+            'last-modified': 'Tue, 01 Sep 2026 10:00:00 GMT',
+            'set-cookie': ['session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT', 'consent=yes'],
+            link: '</docs/guide/page?p=2>; rel="next"',
+        });
+        res.end(DETAILS_BODY);
+    },
 };
+const DETAILS_BODY = html('<h1>Guide</h1><p>Short text.</p>', '<title>Guide</title>');
 
 beforeAll(async () => {
     // Keep Crawlee from writing ./storage and from logging every request.
@@ -186,7 +200,32 @@ describe('SiteCrawler (fast HTML mode)', () => {
 
     it('follows redirects and records the final URL', async () => {
         const { byPath } = await crawl('/');
-        expect(byPath.get('/redirect')).toMatchObject({ status: 200, finalUrl: `${origin}/c`, title: 'C' });
+        expect(byPath.get('/redirect')).toMatchObject({ status: 200, finalUrl: `${origin}/c`, title: 'C', redirectType: 'HTTP Redirect' });
+        expect(byPath.get('/a')!.redirectType).toBe('');
+    });
+
+    it('reports response details: status text, HTTP version, headers, size, hash, folder depth and timestamp', async () => {
+        const before = Date.now();
+        const { byPath } = await crawl('/docs/guide/page', { maxDepth: 0 });
+        const row = byPath.get('/docs/guide/page')!;
+        expect(row).toMatchObject({
+            statusText: 'OK',
+            httpVersion: '1.1',
+            lastModified: 'Tue, 01 Sep 2026 10:00:00 GMT',
+            cookies: 'session, consent',
+            httpRelNext: `${origin}/docs/guide/page?p=2`,
+            sizeBytes: Buffer.byteLength(DETAILS_BODY),
+            hash: createHash('md5').update(DETAILS_BODY).digest('hex'),
+            folderDepth: 3,
+            urlEncoded: `${origin}/docs/guide/page`,
+        });
+        expect(Date.parse(row.crawlTimestamp)).toBeGreaterThanOrEqual(before - 1000);
+        expect(byPath.size).toBe(1);
+    });
+
+    it('gives 404 rows their status text', async () => {
+        const { byPath } = await crawl('/');
+        expect(byPath.get('/missing')!.statusText).toBe('Not Found');
     });
 
     it('reports noindex from meta robots and from the X-Robots-Tag header', async () => {
@@ -321,6 +360,21 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
         await crawl('/a', { renderJs: true, maxDepth: 0, userAgent: '' });
         expect(userAgents.get('/a')).toMatch(/Chrome\//);
         expect(userAgents.get('/a')).not.toMatch(/Headless/);
+    });
+
+    it('reports response details and HTTP redirects in browser mode too', async () => {
+        const details = await crawl('/docs/guide/page', { renderJs: true, maxDepth: 0 });
+        expect(details.byPath.get('/docs/guide/page')).toMatchObject({
+            statusText: 'OK',
+            httpVersion: '1.1',
+            lastModified: 'Tue, 01 Sep 2026 10:00:00 GMT',
+            cookies: 'session, consent',
+            sizeBytes: Buffer.byteLength(DETAILS_BODY),
+            hash: createHash('md5').update(DETAILS_BODY).digest('hex'),
+        });
+
+        const redirect = await crawl('/redirect', { renderJs: true, maxDepth: 0 });
+        expect(redirect.byPath.get('/redirect')).toMatchObject({ finalUrl: `${origin}/c`, redirectType: 'HTTP Redirect' });
     });
 
     it('reports a challenge page as blocked in browser mode too', async () => {

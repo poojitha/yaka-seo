@@ -4,7 +4,8 @@ import { loadHtml } from './test-utils';
 
 const PAGE = 'https://example.com/blog/post';
 
-const extract = (html: string, { url = PAGE, status = 200 as number | null, xRobots = '' } = {}) => extractSeo(loadHtml(html), url, status, xRobots);
+const extract = (html: string, { url = PAGE, status = 200 as number | null, xRobots = '', headers = {} as Record<string, string> } = {}) =>
+    extractSeo(loadHtml(html), url, status, { ...(xRobots && { 'x-robots-tag': xRobots }), ...headers });
 
 describe('extractSeo: on-page fields', () => {
     it('reads title and meta description, collapsing whitespace', () => {
@@ -84,6 +85,104 @@ describe('extractSeo: on-page fields', () => {
 
     it('lower-cases meta robots', () => {
         expect(extract('<head><meta name="ROBOTS" content="NoFollow, NoArchive"></head>').metaRobots).toBe('nofollow, noarchive');
+    });
+
+    it('reads the first two H1s and the first H2 with their lengths', () => {
+        const r = extract('<body><h1> First </h1><h2>Sub one</h2><h1>Second one</h1><h2>Sub two</h2></body>');
+        expect(r).toMatchObject({ h1: 'First', h1Length: 5, h1Second: 'Second one', h1SecondLength: 10, h2: 'Sub one', h2Length: 7 });
+        expect(extract('<body><h1>Only</h1></body>')).toMatchObject({ h1Second: '', h1SecondLength: 0, h2: '', h2Length: 0 });
+    });
+
+    it('reads meta keywords, meta refresh and the html lang', () => {
+        const r = extract(`<html lang="en-GB"><head>
+            <meta name="Keywords" content=" seo,  crawler ">
+            <meta http-equiv="Refresh" content="5; url=/next">
+        </head><body></body></html>`);
+        expect(r).toMatchObject({ metaKeywords: 'seo, crawler', metaKeywordsLength: 12, metaRefresh: '5; url=/next', language: 'en-GB' });
+    });
+
+    it('reports the first two meta robots tags, and a noindex in the second makes the page non-indexable', () => {
+        const r = extract('<head><meta name="robots" content="follow"><meta name="robots" content="NOINDEX"></head>');
+        expect(r).toMatchObject({ metaRobots: 'follow', metaRobots2: 'noindex', indexable: false, indexabilityReason: 'noindex (meta)' });
+    });
+
+    it('keeps the X-Robots-Tag header as sent', () => {
+        expect(extract('<body></body>', { xRobots: 'NoIndex, NoFollow' }).xRobotsTag).toBe('NoIndex, NoFollow');
+    });
+
+    it('resolves pagination, AMP and mobile alternate links', () => {
+        const r = extract(`<head>
+            <link rel="next" href="?page=3">
+            <link rel="Prev" href="/blog/post?page=1">
+            <link rel="amphtml" href="/amp/post">
+            <link rel="alternate" hreflang="fr" href="/fr/post">
+            <link rel="alternate" media="only screen and (max-width: 640px)" href="https://m.example.com/post">
+        </head>`);
+        expect(r).toMatchObject({
+            relNext: 'https://example.com/blog/post?page=3',
+            relPrev: 'https://example.com/blog/post?page=1',
+            amphtml: 'https://example.com/amp/post',
+            mobileAlternate: 'https://m.example.com/post',
+        });
+    });
+
+    it('reads next and prev from the HTTP Link header', () => {
+        const link = '</style.css>; rel=preload; as=style, <https://example.com/blog/post?page=3>; rel="next", </blog/post?page=1>; rel="prev start"';
+        const r = extract('<body></body>', { headers: { link } });
+        expect(r.httpRelNext).toBe('https://example.com/blog/post?page=3');
+        expect(r.httpRelPrev).toBe('https://example.com/blog/post?page=1');
+        expect(extract('<body></body>')).toMatchObject({ httpRelNext: '', httpRelPrev: '' });
+    });
+
+    it('lists the names of cookies set by the response', () => {
+        const headers = { 'set-cookie': 'session=abc; Path=/; Expires=Wed, 21 Oct 2026 07:28:00 GMT\nconsent=yes; Secure' };
+        expect(extract('<body></body>', { headers }).cookies).toBe('session, consent');
+        expect(extract('<body></body>').cookies).toBe('');
+    });
+
+    it('counts unique links separately from total links', () => {
+        const r = extract(`<body>
+            <a href="/a">1</a><a href="/a#x">same page, other fragment</a><a href="/b">2</a>
+            <a href="https://google.com/">ext</a><a href="https://google.com/">ext again</a>
+        </body>`);
+        expect(r).toMatchObject({ internalLinks: 3, uniqueInternalLinks: 2, externalLinks: 2, uniqueExternalLinks: 1 });
+    });
+});
+
+describe('extractSeo: readability', () => {
+    it('ends sentences at punctuation and at block elements, not at source line breaks', () => {
+        const r = extract(`<body>
+            <h2>Menu heading</h2>
+            <ul><li>Home</li><li>About us</li></ul>
+            <p>The cat sat on
+               the mat. It was happy! Was it?</p>
+        </body>`);
+        // "Menu heading", "Home", "About us", "The cat sat on the mat", "It was happy", "Was it".
+        expect(r.sentenceCount).toBe(6);
+        expect(r.wordCount).toBe(16);
+        expect(r.avgWordsPerSentence).toBe(2.667);
+    });
+
+    it('scores simple text as easy and long, polysyllabic text as difficult', () => {
+        const easy = extract('<body><p>The cat sat on the mat. The dog ran to the park. We had fun in the sun.</p></body>');
+        const hard = extract(
+            '<body><p>Comprehensive organizational methodologies necessitate considerable interdepartmental communication, particularly regarding sophisticated implementation responsibilities.</p></body>',
+        );
+        expect(easy.fleschReadingEase!).toBeGreaterThan(90);
+        expect(easy.readability).toBe('Very Easy');
+        expect(hard.fleschReadingEase!).toBeLessThan(30);
+        expect(hard.readability).toBe('Very Difficult');
+    });
+
+    it('has no readability score for a page without text', () => {
+        expect(extract('<body></body>')).toMatchObject({ sentenceCount: 0, avgWordsPerSentence: null, fleschReadingEase: null, readability: '' });
+    });
+
+    it('computes the text ratio as visible text over HTML size', () => {
+        const r = extract('<body><p>abcd</p><script>var lots_of_code = 1;</script></body>');
+        expect(r.textRatio).toBeGreaterThan(0);
+        expect(r.textRatio).toBeLessThan(10);
+        expect(extract('<body></body>').textRatio).toBe(0);
     });
 });
 
