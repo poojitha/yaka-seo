@@ -213,6 +213,36 @@ Electron apps run as separate processes. Yaka|SEO keeps all crawling in the **ma
    - Closing the last window calls `crawler.teardown()`, which shuts down immediately.
    - The queue is deleted in a `finally` block.
 
+### Call path when you press Start
+
+The same flow as above, as the functions that actually run and the files they live in:
+
+```
+StartScreen.submit()                                  renderer/src/StartScreen.tsx   validate URL, build CrawlOptions
+ └─ App.start(opts)                                   renderer/src/App.tsx           reset state, setScreen('crawling')
+     └─ window.api.startCrawl(opts)                   preload/index.ts               ipcRenderer.invoke('crawl:start')
+         └─ ipcMain.handle('crawl:start')             main/index.ts                  checkSender(), parseCrawlOptions() (validate.ts),
+             │                                                                       start 250 ms flush() timer, run crawl without await
+             └─ SiteCrawler.run() → crawl()           main/crawler.ts                RequestQueue.open(), new Cheerio/PlaywrightCrawler,
+                 │                                                                   this.crawler.run([startUrl])
+                 ├─ preNavigationHooks                main/crawler.ts                record startedAt; set User-Agent (Cheerio)
+                 ├─ requestHandler                    main/crawler.ts                collect status, headers, body → PageResponse
+                 │   └─ handlePage()                  main/crawler.ts
+                 │       ├─ detectBotProtection()     main/extract.ts                block/challenge page → errorResult() row, stop here
+                 │       ├─ baseResult()              main/crawler.ts                url, depth, timing, timestamp
+                 │       ├─ extractSeo()              main/extract.ts                on-page SEO fields + indexability
+                 │       ├─ onPage(row)               main/index.ts                  push row into buffer
+                 │       └─ enqueueLinks()            (Crawlee)                      same-hostname links back into the queue (status < 400)
+                 └─ failedRequestHandler              main/crawler.ts                network failure → errorResult() row
+
+flush() every 250 ms                                  main/index.ts                  webContents.send('crawl:results' / 'crawl:progress')
+ └─ subscribe() listeners                             preload/index.ts               call the onResults / onProgress callbacks
+     └─ App useEffect → setResults / setProgress      renderer/src/App.tsx           CrawlingScreen re-renders (count, current URL, bar)
+
+crawler.run() resolves                                main/index.ts                  final flush(); status 'finished', 'stopped' or 'error'
+ └─ CrawlingScreen "View results" → onContinue        renderer/src/CrawlingScreen.tsx  setScreen('results') → ResultsTable
+```
+
 ### Key design decisions
 
 **The RequestQueue is new for every crawl and kept in memory.**
