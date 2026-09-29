@@ -29,7 +29,8 @@ Enter a URL and Yaka|SEO crawls the site. It records each page's status code, ti
 - **Respects robots.txt.**
 - **Crawl limits:** max pages, max depth and concurrency (threads).
 - **Stays on the start URL's hostname.**
-- **Records 4xx/5xx pages and failures** as rows instead of silently dropping them.
+- **User-Agent setting:** a generated real-browser (Chrome) fingerprint (default), or a custom string.
+- **Records 4xx/5xx pages and failures** as rows instead of silently dropping them. Bot-protection blocks and challenge pages (Akamai, Cloudflare) are flagged as **Blocked** instead of being reported as real pages.
 - **Issue filters:** errors, redirects, non-indexable, missing or long titles, missing or long meta descriptions, missing or multiple H1s, thin content, and images missing alt text.
 - **Results table:** sortable and searchable, and it only renders visible rows, so it stays fast on large crawls.
 - **Details panel** showing every field for the selected URL.
@@ -125,7 +126,7 @@ import { SiteCrawler } from '../src/main/crawler';
 
 const rows = [];
 await new SiteCrawler().run(
-    { startUrl: 'https://books.toscrape.com/', maxPages: 50, maxDepth: 3, concurrency: 5, renderJs: false },
+    { startUrl: 'https://books.toscrape.com/', maxPages: 50, maxDepth: 3, concurrency: 5, renderJs: false, userAgent: '' },
     (row) => rows.push(row),
 );
 console.log(rows);
@@ -360,6 +361,9 @@ npm i -D vite@7 @vitejs/plugin-react@5
 - The site may redirect to a different hostname (for example `example.com` → `www.example.com`). Start from the final hostname.
 - robots.txt may disallow the pages.
 - The links may be added by JavaScript. Turn on **Render JavaScript**.
+
+**Pages show as "Blocked by bot protection"**
+The site's CDN (Akamai, Cloudflare) is refusing automated clients. Try a custom User-Agent. If you own the site, allowlist a custom user agent or your IP in the CDN/WAF, which is how crawlers such as Screaming Frog get through.
 
 ---
 

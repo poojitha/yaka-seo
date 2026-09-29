@@ -5,6 +5,8 @@ export interface CrawlOptions {
     concurrency: number;
     /** Use headless Chromium (Playwright) to render JavaScript before extracting. */
     renderJs: boolean;
+    /** User-Agent header to send. '' means a generated real-browser (Chrome) fingerprint. */
+    userAgent: string;
 }
 
 export interface PageResult {

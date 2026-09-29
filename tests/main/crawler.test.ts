@@ -20,6 +20,8 @@ import { SiteCrawler } from '../../src/main/crawler';
  *   ├─ /broken       [1] connection is dropped (network failure)
  *   ├─ /private/...      disallowed by robots.txt
  *   └─ localhost / example.org links: other hostnames, out of scope
+ *
+ * Unlinked: /slow (concurrency), /spa (JavaScript), /blocked and /challenge (bot protection).
  */
 const html = (body: string, head = '') => `<!doctype html><html><head>${head}</head><body>${body}</body></html>`;
 const links = (...paths: string[]) => paths.map((p) => `<a href="${p}">${p}</a>`).join('\n');
@@ -40,6 +42,8 @@ let port: number;
 let requested: string[] = [];
 let inFlight = 0;
 let maxInFlight = 0;
+/** User-Agent header of each page request, by path. */
+let userAgents = new Map<string, string>();
 
 const routes: Record<string, Route> = {
     '/robots.txt': (_req, res) => {
@@ -76,6 +80,11 @@ const routes: Record<string, Route> = {
         '<div id="root"></div><script>document.title = "Rendered title"; document.getElementById("root").innerHTML = \'<h1>Hello</h1><a href="/spa/child">child</a>\';</script>',
     ),
     '/spa/child': page('<p>child</p>', '<title>Child</title>'),
+
+    // Bot protection: an Akamai edge block, and an Akamai challenge served with 200 whose links aren't the site's.
+    '/blocked': page('<h1>Access Denied</h1>', '<title>Access Denied</title>', 403, { server: 'AkamaiGHost' }),
+    '/challenge': page(`<div id="sec-if-cpt-container"></div>${links('/from-challenge')}`),
+    '/from-challenge': page('<p>should never be crawled</p>'),
 };
 
 beforeAll(async () => {
@@ -86,6 +95,7 @@ beforeAll(async () => {
     server = createServer(async (req, res) => {
         const path = new URL(req.url!, 'http://x').pathname;
         if (path !== '/robots.txt') requested.push(path);
+        userAgents.set(path, req.headers['user-agent'] ?? '');
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
         try {
@@ -114,9 +124,10 @@ beforeEach(() => {
     requested = [];
     inFlight = 0;
     maxInFlight = 0;
+    userAgents = new Map();
 });
 
-const defaults: Omit<CrawlOptions, 'startUrl'> = { maxPages: 100, maxDepth: 10, concurrency: 5, renderJs: false };
+const defaults: Omit<CrawlOptions, 'startUrl'> = { maxPages: 100, maxDepth: 10, concurrency: 5, renderJs: false, userAgent: '' };
 
 async function crawl(path: string, options: Partial<CrawlOptions> = {}, crawler = new SiteCrawler()) {
     const rows: PageResult[] = [];
@@ -204,6 +215,24 @@ describe('SiteCrawler (fast HTML mode)', () => {
         expect(rows).toHaveLength(maxPages);
     });
 
+    it('sends the configured User-Agent, or a real-browser one when it is empty', async () => {
+        await crawl('/a', { maxDepth: 0, userAgent: 'Mozilla/5.0 (compatible; TestBot/1.0)' });
+        expect(userAgents.get('/a')).toBe('Mozilla/5.0 (compatible; TestBot/1.0)');
+
+        await crawl('/a', { maxDepth: 0, userAgent: '' });
+        expect(userAgents.get('/a')).toMatch(/Chrome\//);
+    });
+
+    it.each([
+        ['/blocked', 403],
+        ['/challenge', 200],
+    ])('reports %s as blocked by bot protection and does not follow its links', async (path, status) => {
+        const { byPath, paths } = await crawl(path);
+        expect(byPath.get(path)).toMatchObject({ status, indexable: false, indexabilityReason: 'Blocked', title: '' });
+        expect(byPath.get(path)!.error).toMatch(/^Blocked by bot protection \(Akamai\)/);
+        expect(paths).toEqual([path]);
+    });
+
     it('Threads caps how many requests run at once', async () => {
         await crawl('/slow', { concurrency: 2 });
         expect(maxInFlight).toBeLessThanOrEqual(2);
@@ -264,5 +293,20 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
         expect(byPath.get('/missing')).toMatchObject({ status: 404, error: null });
         expect(paths).not.toContain('/a/deep');
         expect(requested).not.toContain('/private/secret');
+    });
+
+    it('sends the configured User-Agent, or a real-browser one when it is empty', async () => {
+        await crawl('/a', { renderJs: true, maxDepth: 0, userAgent: 'Mozilla/5.0 (compatible; TestBot/1.0)' });
+        expect(userAgents.get('/a')).toBe('Mozilla/5.0 (compatible; TestBot/1.0)');
+
+        await crawl('/a', { renderJs: true, maxDepth: 0, userAgent: '' });
+        expect(userAgents.get('/a')).toMatch(/Chrome\//);
+        expect(userAgents.get('/a')).not.toMatch(/Headless/);
+    });
+
+    it('reports a challenge page as blocked in browser mode too', async () => {
+        const { byPath, paths } = await crawl('/challenge', { renderJs: true });
+        expect(byPath.get('/challenge')).toMatchObject({ status: 200, indexabilityReason: 'Blocked' });
+        expect(paths).toEqual(['/challenge']);
     });
 });

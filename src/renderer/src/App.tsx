@@ -8,7 +8,7 @@ import logo from './assets/logo.png';
 
 export function App() {
     // Kept here (not in StartScreen) so "New crawl" reopens the setup screen with the last settings.
-    const [options, setOptions] = useState<CrawlOptions>({ startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true });
+    const [options, setOptions] = useState<CrawlOptions>({ startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true, userAgent: '' });
     const [screen, setScreen] = useState<'setup' | 'crawling' | 'results'>('setup');
 
     const [results, setResults] = useState<PageResult[]>([]);

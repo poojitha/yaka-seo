@@ -55,7 +55,7 @@ describe('App', () => {
     it('Start sends the options to main and shows the crawling screen with the latest URL', async () => {
         render(<App />);
         await startCrawl();
-        expect(api.startCrawl).toHaveBeenCalledWith({ startUrl: 'https://example.com/', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true });
+        expect(api.startCrawl).toHaveBeenCalledWith({ startUrl: 'https://example.com/', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true, userAgent: '' });
         expect(screen.getByRole('heading').textContent).toBe('Crawling…');
 
         act(() => emitResults(pages.slice(0, 2)));
@@ -74,14 +74,14 @@ describe('App', () => {
         expect(screen.getByRole('button', { name: 'Stopping…' })).toBeTruthy();
     });
 
-    it('Continue shows the results table, with filters, counts and search', async () => {
+    it('View results shows the results table, with filters, counts and search', async () => {
         render(<App />);
         await startCrawl();
         act(() => {
             emitResults(pages);
             emitProgress({ status: 'finished', crawled: 3 });
         });
-        click('Continue');
+        click('View results');
 
         const allTab = screen.getByRole('button', { name: /^All/ });
         expect(allTab.textContent).toBe('All 3');
@@ -100,7 +100,7 @@ describe('App', () => {
         render(<App />);
         await startCrawl();
         act(() => emitResults(pages));
-        click('Continue');
+        click('Show live results');
         fireEvent.click(screen.getByText('Home', { selector: '.cell' }));
         expect(screen.getByText('indexabilityReason', { selector: 'dt' })).toBeTruthy();
     });
@@ -112,7 +112,7 @@ describe('App', () => {
             emitResults(pages);
             emitProgress({ status: 'finished', crawled: 3 });
         });
-        click('Continue');
+        click('View results');
         click('4xx / 5xx / Failed 1');
         await act(async () => click('Export CSV'));
         expect(api.exportCsv).toHaveBeenCalledWith([pages[1]]);
@@ -121,7 +121,7 @@ describe('App', () => {
     it('the results toolbar shows Stop while running and New crawl when done', async () => {
         render(<App />);
         await startCrawl();
-        click('Continue');
+        click('Show live results');
         expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
         expect(screen.queryByRole('button', { name: 'New crawl' })).toBeNull();
 
@@ -137,7 +137,7 @@ describe('App', () => {
             emitResults(pages);
             emitProgress({ status: 'finished', crawled: 3 });
         });
-        click('Continue');
+        click('View results');
         click('New crawl');
 
         expect(field('Website URL').value).toBe('https://first.example/');
@@ -154,7 +154,7 @@ describe('App', () => {
             emitResults(pages);
             emitProgress({ status: 'finished', crawled: 3 });
         });
-        click('Continue');
+        click('View results');
         click('New crawl');
         click('Close');
         expect(screen.getByRole('button', { name: /^All/ }).textContent).toBe('All 3');
@@ -164,7 +164,7 @@ describe('App', () => {
     it('shows a crawl error in the status bar', async () => {
         render(<App />);
         await startCrawl();
-        click('Continue');
+        click('Show live results');
         act(() => emitProgress({ status: 'error', crawled: 0, message: 'Browser crashed' }));
         expect(screen.getByText('Browser crashed')).toBeTruthy();
         expect(screen.getByText('ERROR')).toBeTruthy();

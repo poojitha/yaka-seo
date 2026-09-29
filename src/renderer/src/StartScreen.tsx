@@ -2,6 +2,9 @@ import { useState, type FormEvent } from 'react';
 import type { CrawlOptions } from '@shared/types';
 import logo from './assets/logo.png';
 
+type UaMode = 'browser' | 'custom';
+const uaModeOf = (ua: string): UaMode => (ua === '' ? 'browser' : 'custom');
+
 interface Props {
     initial: CrawlOptions;
     onStart: (options: CrawlOptions) => void;
@@ -14,6 +17,8 @@ export function StartScreen({ initial, onStart, onClose }: Props) {
     const [maxDepth, setMaxDepth] = useState(initial.maxDepth);
     const [concurrency, setConcurrency] = useState(initial.concurrency);
     const [renderJs, setRenderJs] = useState(initial.renderJs);
+    const [uaMode, setUaMode] = useState<UaMode>(uaModeOf(initial.userAgent));
+    const [customUa, setCustomUa] = useState(uaModeOf(initial.userAgent) === 'custom' ? initial.userAgent : '');
     const [error, setError] = useState('');
 
     const submit = (e: FormEvent) => {
@@ -24,7 +29,12 @@ export function StartScreen({ initial, onStart, onClose }: Props) {
             setError('Enter a valid URL, e.g. https://example.com');
             return;
         }
-        onStart({ startUrl, maxPages, maxDepth, concurrency, renderJs });
+        if (uaMode === 'custom' && !customUa.trim()) {
+            setError('Enter a custom User-Agent, or pick a preset');
+            return;
+        }
+        const userAgent = uaMode === 'browser' ? '' : customUa.trim();
+        onStart({ startUrl, maxPages, maxDepth, concurrency, renderJs, userAgent });
     };
 
     return (
@@ -65,6 +75,30 @@ export function StartScreen({ initial, onStart, onClose }: Props) {
                         <input type="number" min={1} max={50} value={concurrency} onChange={(e) => setConcurrency(+e.target.value)} />
                     </label>
                 </div>
+                <label className="field">
+                    <span>User agent</span>
+                    <select
+                        value={uaMode}
+                        onChange={(e) => {
+                            setUaMode(e.target.value as UaMode);
+                            setError('');
+                        }}
+                    >
+                        <option value="browser">Browser (Chrome)</option>
+                        <option value="custom">Custom…</option>
+                    </select>
+                </label>
+                {uaMode === 'custom' && (
+                    <input
+                        aria-label="Custom user agent"
+                        placeholder="e.g. Mozilla/5.0 (compatible; MyBot/1.0)"
+                        value={customUa}
+                        onChange={(e) => {
+                            setCustomUa(e.target.value);
+                            setError('');
+                        }}
+                    />
+                )}
                 <label className="check">
                     <input type="checkbox" checked={renderJs} onChange={(e) => setRenderJs(e.target.checked)} /> Render JavaScript
                 </label>

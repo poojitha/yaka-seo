@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractSeo } from '../../src/main/extract';
+import { detectBotProtection, extractSeo } from '../../src/main/extract';
 import { loadHtml } from './test-utils';
 
 const PAGE = 'https://example.com/blog/post';
@@ -114,5 +114,23 @@ describe('extractSeo: indexability', () => {
         const r = extract(`<html><head>${html}</head><body></body></html>`, { status, xRobots, url });
         expect(r.indexable).toBe(indexable);
         expect(r.indexabilityReason).toBe(reason);
+    });
+});
+
+describe('detectBotProtection', () => {
+    const cases: { name: string; status: number | null; headers?: Record<string, string>; html?: string; vendor: string | null }[] = [
+        { name: 'Akamai challenge page served with 200', status: 200, html: '<div id="sec-if-cpt-container"></div>', vendor: 'Akamai' },
+        { name: 'Akamai 403 "Access Denied"', status: 403, headers: { server: 'AkamaiGHost' }, html: '<title>Access Denied</title>', vendor: 'Akamai' },
+        { name: 'Cloudflare challenge header', status: 403, headers: { 'cf-mitigated': 'challenge' }, vendor: 'Cloudflare' },
+        { name: 'Cloudflare "Just a moment..." page', status: 503, headers: { server: 'cloudflare' }, html: '<title>Just a moment...</title>', vendor: 'Cloudflare' },
+        { name: 'Cloudflare 403 block', status: 403, headers: { server: 'cloudflare' }, vendor: 'Cloudflare' },
+        { name: 'normal page behind Akamai', status: 200, headers: { server: 'AkamaiGHost' }, html: '<title>Home</title>', vendor: null },
+        { name: 'normal page behind Cloudflare with its JS detection script', status: 200, headers: { server: 'cloudflare' }, html: '<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>', vendor: null },
+        { name: 'real 404 behind Akamai', status: 404, headers: { server: 'AkamaiGHost' }, vendor: null },
+        { name: 'plain 403 from an origin server', status: 403, headers: { server: 'nginx' }, vendor: null },
+    ];
+
+    it.each(cases)('$name', ({ status, headers = {}, html = '', vendor }) => {
+        expect(detectBotProtection(status, headers, loadHtml(`<html><head>${html}</head><body></body></html>`))).toBe(vendor);
     });
 });

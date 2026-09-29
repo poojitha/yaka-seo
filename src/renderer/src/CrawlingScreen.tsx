@@ -48,9 +48,14 @@ export function CrawlingScreen({ startUrl, maxPages, progress, currentUrl, crawl
                         </button>
                     )}
                     <button type="button" className="primary" onClick={onContinue}>
-                        Continue
+                        {done ? 'View results' : 'Show live results'}
                     </button>
                 </div>
+                {!done && (
+                    <div className="crawl-hint">
+                        The crawl keeps running in the background. Results appear in the table as pages are crawled.
+                    </div>
+                )}
             </div>
         </div>
     );

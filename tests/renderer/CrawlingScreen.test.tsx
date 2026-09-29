@@ -45,10 +45,11 @@ describe('CrawlingScreen', () => {
         expect(bar.style.width).toBe('100%');
     });
 
-    it('Stop and Continue call their handlers while running', () => {
+    it('Stop and Show live results call their handlers while running, with a background hint', () => {
         const { onStop, onContinue } = setup({ status: 'running', crawled: 3 }, { crawled: 3 });
         fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-        fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Show live results' }));
+        expect(screen.getByText(/keeps running in the background/)).toBeTruthy();
         expect(onStop).toHaveBeenCalledOnce();
         expect(onContinue).toHaveBeenCalledOnce();
     });
@@ -59,7 +60,7 @@ describe('CrawlingScreen', () => {
         expect((screen.getByRole('button', { name: 'Stopping…' }) as HTMLButtonElement).disabled).toBe(true);
     });
 
-    it('shows a check mark, full bar and only Continue when finished', () => {
+    it('shows a check mark, full bar and only View results when finished', () => {
         const { container, bar } = setup({ status: 'finished', crawled: 40 }, { crawled: 40, maxPages: 500, currentUrl: 'https://example.com/last' });
         expect(screen.getByRole('heading').textContent).toBe('Crawl complete');
         expect(container.querySelector('.loader.ok')?.textContent).toBe('✓');
@@ -68,7 +69,8 @@ describe('CrawlingScreen', () => {
         expect(screen.getByText('40 pages crawled')).toBeTruthy();
         expect(screen.queryByText('https://example.com/last')).toBeNull();
         expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
-        expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'View results' })).toBeTruthy();
+        expect(screen.queryByText(/keeps running in the background/)).toBeNull();
     });
 
     it('shows the error message when the crawl fails', () => {

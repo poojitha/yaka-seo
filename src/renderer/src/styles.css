@@ -68,7 +68,7 @@ body { margin: 0; background: var(--bg); }
 .toolbar input[type='number'] { width: 70px; }
 .toolbar .url { flex: 1; min-width: 200px; }
 
-input, button {
+input, select, button {
     font: inherit;
     color: var(--text);
     background: var(--bg);
@@ -139,6 +139,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .start-card button.primary { padding: 8px; font-size: 15px; }
 .start-card .close { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; padding: 0; font-size: 20px; line-height: 1; border: none; background: none; color: var(--muted); }
 .start-card .close:hover { color: var(--text); background: var(--panel); }
+/* Start form: keep the fields to at most half the card width, centred. */
+form.start-card > :not(.close) { width: 100%; max-width: 50%; align-self: center; }
 
 /* Crawling screen: reuses the start-card layout, centred content. */
 .start-card.crawling { align-items: center; text-align: center; }
@@ -146,6 +148,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .crawling .progress-bar { width: 100%; max-width: 420px; height: 6px; background: var(--panel); border-radius: 3px; overflow: hidden; }
 .crawling .progress-bar > div { height: 100%; background: var(--accent); transition: width 0.3s ease; }
 .crawling .crawl-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.crawling .crawl-hint { color: var(--muted); font-size: 12px; max-width: 420px; }
 .crawling .current-url {
     width: 100%;
     max-width: 560px;

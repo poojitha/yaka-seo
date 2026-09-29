@@ -1,6 +1,6 @@
 import { CheerioCrawler, Configuration, PlaywrightCrawler, RequestQueue, type CheerioRoot, type Request } from 'crawlee';
 import type { CrawlOptions, PageResult } from '@shared/types';
-import { extractSeo } from './extract';
+import { detectBotProtection, extractSeo } from './extract';
 
 // Report 4xx/5xx pages as results instead of letting Crawlee treat them as failures and retry.
 const HTTP_ERROR_CODES = Array.from({ length: 200 }, (_, i) => 400 + i);
@@ -50,34 +50,48 @@ export class SiteCrawler {
             },
         };
 
+        /** `headers` must have lower-case names. */
         const handlePage = async (
             request: Request,
             status: number | null,
-            contentType: string | null,
-            xRobotsTag: string,
+            headers: Record<string, string>,
             $: CheerioRoot,
             enqueueLinks: (opts: { strategy: 'same-hostname' }) => Promise<unknown>,
         ) => {
+            const contentType = headers['content-type'] ?? null;
+            const blockedBy = detectBotProtection(status, headers, $);
+            if (blockedBy) {
+                // A block/challenge page says nothing about the real page, and its links aren't the site's.
+                onPage({
+                    ...errorResult(request, `Blocked by bot protection (${blockedBy}). Try another User-Agent, or ask the site owner to allowlist the crawler.`),
+                    status,
+                    contentType,
+                    indexabilityReason: 'Blocked',
+                });
+                return;
+            }
             const url = request.loadedUrl ?? request.url;
             onPage({
                 ...baseResult(request),
                 status,
                 contentType,
-                ...extractSeo($, url, status, xRobotsTag),
+                ...extractSeo($, url, status, headers['x-robots-tag'] ?? ''),
                 error: null,
             });
             if (status === null || status < 400) await enqueueLinks({ strategy: 'same-hostname' });
         };
 
+        const { userAgent } = options;
         if (options.renderJs) {
             this.crawler = new PlaywrightCrawler(
                 {
                     ...shared,
                     headless: true,
+                    // Crawlee's fingerprints override the User-Agent, so they're only used for the browser ('') setting.
+                    ...(userAgent && { browserPoolOptions: { useFingerprints: false }, launchContext: { userAgent } }),
                     async requestHandler({ request, response, parseWithCheerio, enqueueLinks }) {
-                        const headers = response?.headers() ?? {};
                         const $ = await parseWithCheerio();
-                        await handlePage(request, response?.status() ?? null, headers['content-type'] ?? null, headers['x-robots-tag'] ?? '', $, enqueueLinks);
+                        await handlePage(request, response?.status() ?? null, response?.headers() ?? {}, $, enqueueLinks);
                     },
                 },
                 config,
@@ -87,16 +101,17 @@ export class SiteCrawler {
                 {
                     ...shared,
                     ignoreHttpErrorStatusCodes: HTTP_ERROR_CODES,
+                    preNavigationHooks: [
+                        ...shared.preNavigationHooks,
+                        (_ctx, gotOptions) => {
+                            if (userAgent) gotOptions.headers = { ...gotOptions.headers, 'user-agent': userAgent };
+                        },
+                    ],
                     async requestHandler({ request, response, $, enqueueLinks }) {
-                        const xRobots = response.headers['x-robots-tag'];
-                        await handlePage(
-                            request,
-                            response.statusCode ?? null,
-                            response.headers['content-type'] ?? null,
-                            Array.isArray(xRobots) ? xRobots.join(',') : (xRobots ?? ''),
-                            $,
-                            enqueueLinks,
+                        const headers = Object.fromEntries(
+                            Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), Array.isArray(v) ? v.join(',') : (v ?? '')]),
                         );
+                        await handlePage(request, response.statusCode ?? null, headers, $, enqueueLinks);
                     },
                 },
                 config,

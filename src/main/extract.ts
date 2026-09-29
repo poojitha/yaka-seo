@@ -50,6 +50,26 @@ export function extractSeo($: CheerioRoot, pageUrl: string, status: number | nul
     };
 }
 
+/**
+ * Recognises CDN bot-protection responses (block pages and JS challenges), which would otherwise be
+ * reported as real pages; Akamai serves its challenge with status 200. Returns the vendor, or null.
+ * `headers` must have lower-case names.
+ */
+export function detectBotProtection(status: number | null, headers: Record<string, string>, $: CheerioRoot): string | null {
+    const server = (headers['server'] ?? '').toLowerCase();
+    const blockedStatus = status === 403 || status === 429 || status === 503;
+
+    if ($('#sec-if-cpt-container, #sec-cpt-if').length > 0) return 'Akamai';
+    if (blockedStatus && server.includes('akamai')) return 'Akamai';
+
+    if (headers['cf-mitigated'] === 'challenge') return 'Cloudflare';
+    // Not the challenge-platform script alone: Cloudflare also injects it into normal pages.
+    if ($('#challenge-form').length > 0 || (blockedStatus && clean($('head > title').first().text()) === 'Just a moment...')) return 'Cloudflare';
+    if (blockedStatus && server === 'cloudflare') return 'Cloudflare';
+
+    return null;
+}
+
 function getIndexability(status: number | null, metaRobots: string, xRobots: string, canonical: string, pageUrl: string) {
     if (status !== null && (status < 200 || status >= 300)) return { indexable: false, indexabilityReason: `Status ${status}` };
     if (metaRobots.includes('noindex') || metaRobots.includes('none')) return { indexable: false, indexabilityReason: 'noindex (meta)' };

@@ -54,7 +54,7 @@ vi.mock('../../src/main/crawler', () => ({
 const invoke = (channel: string, ...args: unknown[]) => electron.handlers.get(channel)!({}, ...args);
 const progressEvents = () => electron.sent.filter((m) => m.channel === 'crawl:progress').map((m) => m.payload as CrawlProgress);
 const resultBatches = () => electron.sent.filter((m) => m.channel === 'crawl:results').map((m) => m.payload as PageResult[]);
-const options: CrawlOptions = { startUrl: 'https://example.com/', maxPages: 10, maxDepth: 2, concurrency: 2, renderJs: false };
+const options: CrawlOptions = { startUrl: 'https://example.com/', maxPages: 10, maxDepth: 2, concurrency: 2, renderJs: false, userAgent: '' };
 
 beforeAll(async () => {
     await import('../../src/main/index');

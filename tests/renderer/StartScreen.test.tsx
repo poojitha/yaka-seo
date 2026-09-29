@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { CrawlOptions } from '@shared/types';
 import { StartScreen } from '../../src/renderer/src/StartScreen';
 
-const initial: CrawlOptions = { startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true };
+const initial: CrawlOptions = { startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true, userAgent: '' };
 
 const setup = (overrides: Partial<CrawlOptions> = {}) => {
     const onStart = vi.fn();
@@ -34,7 +34,32 @@ describe('StartScreen', () => {
         type('Threads', '4');
         fireEvent.click(field('Render JavaScript'));
         fireEvent.click(screen.getByRole('button', { name: 'Start' }));
-        expect(onStart).toHaveBeenCalledWith({ startUrl: 'https://example.com', maxPages: 50, maxDepth: 2, concurrency: 4, renderJs: false });
+        expect(onStart).toHaveBeenCalledWith({ startUrl: 'https://example.com', maxPages: 50, maxDepth: 2, concurrency: 4, renderJs: false, userAgent: '' });
+    });
+
+    it('offers Chrome (the default) and Custom User-Agent options', () => {
+        setup();
+        const select = screen.getByLabelText('User agent') as HTMLSelectElement;
+        expect(select.value).toBe('browser');
+        expect([...select.options].map((o) => o.value)).toEqual(['browser', 'custom']);
+    });
+
+    it('a custom User-Agent is trimmed and required', () => {
+        const { onStart } = setup({ startUrl: 'https://example.com' });
+        expect(screen.queryByLabelText('Custom user agent')).toBeNull();
+        type('User agent', 'custom');
+        fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+        expect(onStart).not.toHaveBeenCalled();
+        expect(screen.getByText(/Enter a custom User-Agent/)).toBeTruthy();
+
+        type('Custom user agent', '  MyBot/1.0  ');
+        fireEvent.click(screen.getByRole('button', { name: 'Start' }));
+        expect(onStart).toHaveBeenCalledWith(expect.objectContaining({ userAgent: 'MyBot/1.0' }));
+    });
+
+    it('reopens with the previous User-Agent choice', () => {
+        setup({ userAgent: 'MyBot/1.0' });
+        expect(field('Custom user agent').value).toBe('MyBot/1.0');
     });
 
     it('pressing Enter in the URL field starts the crawl', () => {
