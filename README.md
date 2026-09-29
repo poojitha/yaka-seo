@@ -17,7 +17,7 @@ Enter a URL and Yaka|SEO crawls the site. It records each page's status code, ti
 - [Data collected per URL](#data-collected-per-url)
 - [Configuration notes](#configuration-notes)
 - [Troubleshooting](#troubleshooting)
-- [Known limitations and roadmap](#known-limitations-and-roadmap)
+- [Known limitations](#known-limitations) (planned work: [ROADMAP.md](ROADMAP.md))
 
 ---
 
@@ -140,7 +140,7 @@ node scripts/crawl.mjs
 
 ### 5. Packaging an installer (not set up yet)
 
-Packaging isn't configured yet. The planned approach is [electron-builder](https://www.electron.build/) (`npm i -D electron-builder`, then `electron-builder --win`). The Playwright Chromium browser has to be shipped with the installer, or downloaded on first run, for the Render JavaScript mode to work. See the [roadmap](#known-limitations-and-roadmap).
+Packaging isn't configured yet. The planned approach is [electron-builder](https://www.electron.build/) (`npm i -D electron-builder`, then `electron-builder --win`). The Playwright Chromium browser has to be shipped with the installer, or downloaded on first run, for the Render JavaScript mode to work. See the [roadmap](ROADMAP.md).
 
 ### npm scripts reference
 
@@ -367,18 +367,11 @@ The site's CDN (Akamai, Cloudflare) is refusing automated clients. Try a custom 
 
 ---
 
-## Known limitations and roadmap
+## Known limitations
 
-**Current limitations**
 - Results are held **in memory**, as a React array in the renderer and in IPC batches. They're lost when the app closes and will struggle past roughly 100k URLs.
 - **Only one crawl at a time.**
 - **No link graph.** Link counts are recorded but not where links point, so there are no inlinks, broken-link sources or orphan pages yet.
 - **No installer or packaging** yet.
 
-**Roadmap**
-1. **Store crawls in SQLite** in the main process, with the UI fetching results a page at a time. Makes very large crawls possible and lets you save and reopen them.
-2. **Link graph:** inlinks and outlinks per URL, broken-link sources, redirect chains, orphan pages.
-3. **More checks:** hreflang, structured data (JSON-LD), Open Graph and Twitter tags, duplicate titles and descriptions, sitemap.xml comparison, pagination.
-4. **Crawl settings:** custom user agent, include/exclude patterns, subdomain scope, crawl delay.
-5. **AI features (Claude API):** content audits, rewritten titles and meta descriptions, grouping pages by topic.
-6. **Packaging** with electron-builder, including the Playwright browser.
+Planned work is tracked in [ROADMAP.md](ROADMAP.md).

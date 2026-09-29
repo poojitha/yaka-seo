@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Yaka|SEO (repo and package name: ScreamingAI) is a desktop SEO crawler (Screaming Frog style) built with Electron + electron-vite, React 19, TypeScript 7, Crawlee 3 and Playwright. README.md is detailed and current; read it for the full data-field list, troubleshooting and roadmap.
+Yaka|SEO (repo and package name: ScreamingAI) is a desktop SEO crawler (Screaming Frog style) built with Electron + electron-vite, React 19, TypeScript 7, Crawlee 3 and Playwright. README.md is detailed and current; read it for the full data-field list and troubleshooting. Planned work lives in ROADMAP.md.
 
 ## Commands
 
