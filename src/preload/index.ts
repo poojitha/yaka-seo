@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { CrawlProgress, PageResult, ScreamingApi } from '@shared/types';
+import { IPC, type CrawlProgress, type PageResult, type ScreamingApi } from '@shared/types';
 
 function subscribe<T>(channel: string, cb: (payload: T) => void) {
     const listener = (_event: IpcRendererEvent, payload: T) => cb(payload);
@@ -10,11 +10,11 @@ function subscribe<T>(channel: string, cb: (payload: T) => void) {
 }
 
 const api: ScreamingApi = {
-    startCrawl: (options) => ipcRenderer.invoke('crawl:start', options),
-    stopCrawl: () => ipcRenderer.invoke('crawl:stop'),
-    exportCsv: (rows) => ipcRenderer.invoke('export:csv', rows),
-    onResults: (cb) => subscribe<PageResult[]>('crawl:results', cb),
-    onProgress: (cb) => subscribe<CrawlProgress>('crawl:progress', cb),
+    startCrawl: (options) => ipcRenderer.invoke(IPC.startCrawl, options),
+    stopCrawl: () => ipcRenderer.invoke(IPC.stopCrawl),
+    exportCsv: (rows) => ipcRenderer.invoke(IPC.exportCsv, rows),
+    onResults: (cb) => subscribe<PageResult[]>(IPC.results, cb),
+    onProgress: (cb) => subscribe<CrawlProgress>(IPC.progress, cb),
 };
 
 contextBridge.exposeInMainWorld('api', api);

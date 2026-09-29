@@ -35,13 +35,23 @@ export interface PageResult {
     error: string | null;
 }
 
-export type CrawlStatus = 'idle' | 'running' | 'stopping' | 'finished' | 'error';
+/** 'stopping' and 'stopped' are sent by main after a Stop request; 'finished' means the crawl ran to completion. */
+export type CrawlStatus = 'idle' | 'running' | 'stopping' | 'stopped' | 'finished' | 'error';
 
 export interface CrawlProgress {
     status: CrawlStatus;
     crawled: number;
     message?: string;
 }
+
+/** IPC channel names, shared by main and preload so the two sides can't drift apart. */
+export const IPC = {
+    startCrawl: 'crawl:start',
+    stopCrawl: 'crawl:stop',
+    exportCsv: 'export:csv',
+    results: 'crawl:results',
+    progress: 'crawl:progress',
+} as const;
 
 /** API exposed to the renderer by the preload script as `window.api`. */
 export interface ScreamingApi {

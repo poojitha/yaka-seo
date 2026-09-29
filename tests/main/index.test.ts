@@ -13,6 +13,7 @@ const electron = vi.hoisted(() => {
     return {
         handlers,
         sent,
+        windows: [] as any[],
         showSaveDialog: vi.fn(),
     };
 });
@@ -20,7 +21,23 @@ const electron = vi.hoisted(() => {
 vi.mock('electron', () => {
     class BrowserWindow {
         static getAllWindows = () => [];
-        webContents = { send: (channel: string, payload: unknown) => electron.sent.push({ channel, payload }) };
+        options: unknown;
+        webContents = {
+            send: (channel: string, payload: unknown) => electron.sent.push({ channel, payload }),
+            mainFrame: {},
+            listeners: new Map<string, (...args: any[]) => unknown>(),
+            on(name: string, fn: (...args: any[]) => unknown) {
+                this.listeners.set(name, fn);
+            },
+            windowOpenHandler: null as null | (() => unknown),
+            setWindowOpenHandler(fn: () => unknown) {
+                this.windowOpenHandler = fn;
+            },
+        };
+        constructor(options: unknown) {
+            this.options = options;
+            electron.windows.push(this);
+        }
         loadURL() {}
         loadFile() {}
         on() {}
@@ -51,7 +68,12 @@ vi.mock('../../src/main/crawler', () => ({
     },
 }));
 
-const invoke = (channel: string, ...args: unknown[]) => electron.handlers.get(channel)!({}, ...args);
+const win = () => electron.windows[0];
+/** Calls a handler as if from our window's top frame, which is the only sender main accepts. */
+const invoke = (channel: string, ...args: unknown[]) => {
+    const sender = win().webContents;
+    return electron.handlers.get(channel)!({ sender, senderFrame: sender.mainFrame }, ...args);
+};
 const progressEvents = () => electron.sent.filter((m) => m.channel === 'crawl:progress').map((m) => m.payload as CrawlProgress);
 const resultBatches = () => electron.sent.filter((m) => m.channel === 'crawl:results').map((m) => m.payload as PageResult[]);
 const options: CrawlOptions = { startUrl: 'https://example.com/', maxPages: 10, maxDepth: 2, concurrency: 2, renderJs: false, userAgent: '' };
@@ -68,6 +90,7 @@ beforeEach(() => {
     crawlerMock.isRunning = false;
     crawlerMock.run.mockReset();
     crawlerMock.stop.mockReset();
+    electron.showSaveDialog.mockReset();
 });
 
 afterEach(() => {
@@ -140,9 +163,50 @@ describe('main process IPC', () => {
         expect(crawlerMock.run).not.toHaveBeenCalled();
     });
 
-    it('crawl:stop asks the crawler to stop gracefully', async () => {
+    it('crawl:stop asks the crawler to stop gracefully, reports stopping, then stopped', async () => {
+        let finish!: () => void;
+        crawlerMock.run.mockImplementation(() => new Promise<void>((r) => (finish = r)));
+        await invoke('crawl:start', options);
+
         await invoke('crawl:stop');
+        await invoke('crawl:stop'); // a second click doesn't stop twice
         expect(crawlerMock.stop).toHaveBeenCalledOnce();
+        expect(progressEvents().at(-1)).toEqual({ status: 'stopping', crawled: 0 });
+
+        finish();
+        await vi.runOnlyPendingTimersAsync();
+        expect(progressEvents().at(-1)).toEqual({ status: 'stopped', crawled: 0 });
+    });
+
+    it('crawl:stop does nothing when no crawl is running', async () => {
+        await invoke('crawl:stop');
+        expect(crawlerMock.stop).not.toHaveBeenCalled();
+        expect(progressEvents()).toEqual([]);
+    });
+
+    it('rejects calls that do not come from the app window', async () => {
+        const handler = electron.handlers.get('crawl:start')!;
+        const foreign = { mainFrame: {} };
+        await expect(handler({ sender: foreign, senderFrame: foreign.mainFrame }, options)).rejects.toThrow('unexpected sender');
+        // A subframe of our own window isn't trusted either.
+        await expect(handler({ sender: win().webContents, senderFrame: {} }, options)).rejects.toThrow('unexpected sender');
+        expect(crawlerMock.run).not.toHaveBeenCalled();
+    });
+
+    it('crawl:start validates options before crawling', async () => {
+        await expect(invoke('crawl:start', { ...options, startUrl: 'file:///C:/Windows/win.ini' })).rejects.toThrow('http or https');
+        await expect(invoke('crawl:start', { ...options, maxPages: Number.NaN })).rejects.toThrow('maxPages');
+        await expect(invoke('crawl:start', { ...options, userAgent: 'Bot\r\nX-Evil: 1' })).rejects.toThrow('control characters');
+        expect(crawlerMock.run).not.toHaveBeenCalled();
+        expect(progressEvents()).toEqual([]);
+    });
+
+    it('the window is sandboxed and cannot open popups or navigate away', () => {
+        expect(win().options.webPreferences).toMatchObject({ contextIsolation: true, sandbox: true });
+        expect(win().webContents.windowOpenHandler()).toEqual({ action: 'deny' });
+        const event = { preventDefault: vi.fn() };
+        win().webContents.listeners.get('will-navigate')(event, 'https://evil.example/');
+        expect(event.preventDefault).toHaveBeenCalled();
     });
 
     describe('export:csv', () => {
@@ -165,6 +229,11 @@ describe('main process IPC', () => {
             expect(csv).toContain('https://example.com/a');
             expect(csv).toContain('"Hello, world"');
             expect(electron.showSaveDialog).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ defaultPath: 'crawl.csv' }));
+        });
+
+        it('rejects a payload that is not a list of rows', async () => {
+            await expect(invoke('export:csv', 'not rows')).rejects.toThrow('list of rows');
+            expect(electron.showSaveDialog).not.toHaveBeenCalled();
         });
 
         it('returns null and writes nothing when the dialog is cancelled', async () => {

@@ -42,6 +42,22 @@ describe('toCsv', () => {
         expect(cells.error).toBe('');
     });
 
+    it('neutralizes crawled text that a spreadsheet would run as a formula', () => {
+        const csv = toCsv([
+            makeResult({ title: '=HYPERLINK("https://evil.example","x")', metaDescription: '+1', h1: '-cmd', canonical: '@SUM(A1)', error: '\tTab' }),
+        ]);
+        expect(csv).toContain(`"'=HYPERLINK(""https://evil.example"",""x"")"`);
+        expect(csv).toContain(",'+1,");
+        expect(csv).toContain(",'-cmd,");
+        expect(csv).toContain(",'@SUM(A1),");
+        expect(csv).toContain("'\tTab");
+    });
+
+    it('leaves numbers alone, including negative ones', () => {
+        const [header, row] = toCsv([makeResult({ responseTimeMs: -1 })]).slice(1).split('\r\n');
+        expect(row.split(',')[header.split(',').indexOf('responseTimeMs')]).toBe('-1');
+    });
+
     it('keeps non-ASCII text intact', () => {
         expect(toCsv([makeResult({ title: 'Café – 日本語' })])).toContain('Café – 日本語');
     });

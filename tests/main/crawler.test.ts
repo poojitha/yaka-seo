@@ -272,6 +272,25 @@ describe('SiteCrawler (fast HTML mode)', () => {
         expect(rows.length).toBeLessThan(21);
         expect(crawler.isRunning).toBe(false);
     });
+
+    it('stop() right after run() starts, while the queue is still opening, is not lost', async () => {
+        const crawler = new SiteCrawler();
+        const rows: PageResult[] = [];
+        const running = crawler.run({ ...defaults, startUrl: `${origin}/slow`, concurrency: 1 }, (r) => rows.push(r));
+        crawler.stop();
+        await running;
+        expect(rows).toEqual([]);
+        expect(requested).toEqual([]);
+        expect(crawler.isRunning).toBe(false);
+    });
+
+    it('stop() when no crawl is running does not affect the next crawl', async () => {
+        const crawler = new SiteCrawler();
+        crawler.stop();
+        await crawler.teardown();
+        const { paths } = await crawl('/', { maxDepth: 0 }, crawler);
+        expect(paths).toEqual(['/']);
+    });
 });
 
 describe('SiteCrawler (Render JavaScript mode)', () => {

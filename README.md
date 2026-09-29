@@ -178,6 +178,7 @@ Electron apps run as separate processes. Yaka|SEO keeps all crawling in the **ma
                           │  events: crawl:results · crawl:progress
 ┌─────────────────────────┼──── Main process (Node.js) ──────────────────────────────────────┐
 │  index.ts ── creates the window, handles IPC, sends results in 250 ms batches, save dialog │
+│  validate.ts ─ checks crawl options from the renderer before a crawl starts                │
 │     │                                                                                      │
 │     ▼                                                                                      │
 │  crawler.ts (SiteCrawler)                                                                  │
@@ -196,7 +197,7 @@ Electron apps run as separate processes. Yaka|SEO keeps all crawling in the **ma
 ### How a crawl runs
 
 1. **Start (renderer):** clicking **Start** calls `window.api.startCrawl(options)`, which sends an `ipcRenderer.invoke('crawl:start')` message to the main process.
-2. **Dispatch (main):** `index.ts` calls `SiteCrawler.run()` **without awaiting it**, so the IPC call returns immediately. Results arrive through a callback and are **buffered**. Every 250 ms the buffer is flushed to the renderer as a `crawl:results` event, along with a `crawl:progress` update. This stops fast crawls from flooding the UI with one message per page.
+2. **Dispatch (main):** `index.ts` checks that the call came from the app window and validates the options with `parseCrawlOptions()`. Invalid options reject the call, and the UI shows the message as a failed crawl. It then calls `SiteCrawler.run()` **without awaiting it**, so the IPC call returns immediately. Results arrive through a callback and are **buffered**. Every 250 ms the buffer is flushed to the renderer as a `crawl:results` event, along with a `crawl:progress` update. This stops fast crawls from flooding the UI with one message per page.
 3. **Crawl setup (`crawler.ts`):**
    - A new `Configuration({ persistStorage: false })` and a uniquely named `RequestQueue` are created for **each** crawl.
    - The crawler is chosen from `renderJs`: `CheerioCrawler` or `PlaywrightCrawler`.
@@ -204,12 +205,12 @@ Electron apps run as separate processes. Yaka|SEO keeps all crawling in the **ma
 4. **Per page:**
    - A `preNavigationHooks` hook records the start time, which is used for response time.
    - The mode-specific `requestHandler` gets the status and headers from its own response type. For example, Cheerio has `response.statusCode` and Playwright has `response.status()`.
-   - It then calls the shared `handlePage()`, which runs `extractSeo()`, reports the row, and adds same-hostname links to the queue (only if the status is below 400).
+   - It then calls the shared `handlePage()`. If `detectBotProtection()` recognizes a CDN block or challenge page, the row is reported as blocked and its links are ignored. Otherwise it runs `extractSeo()`, reports the row, and adds same-hostname links to the queue (only if the status is below 400).
 5. **Failures:** timeouts, DNS errors, unsupported content types and similar go to `failedRequestHandler` and appear as rows with `error` set.
 6. **UI update (renderer):** each batch is appended to the React state. The filter counts, filtered view and search are recalculated with `useMemo`.
 7. **Stop and quit:**
-   - **Stop** calls `crawler.stop()`, a graceful stop: in-flight requests finish and nothing new starts.
-   - Closing the window calls `crawler.teardown()`, which shuts down immediately.
+   - **Stop** calls `crawler.stop()`, a graceful stop: in-flight requests finish and nothing new starts. Main sends a `stopping` status right away and `stopped` (not `finished`) when the crawl ends. A Stop that arrives while the crawl is still setting up is remembered and applied once setup completes.
+   - Closing the last window calls `crawler.teardown()`, which shuts down immediately.
    - The queue is deleted in a `finally` block.
 
 ### Key design decisions
@@ -236,12 +237,14 @@ Both crawlers produce a Cheerio `$`: Cheerio mode parses the HTML directly, and 
 `ResultsTable` gives every row a fixed height (28 px) and only draws the rows in view, plus a small buffer. A `ResizeObserver` tracks the viewport height. There are no extra dependencies.
 
 **Security.**
-- `contextIsolation` is on.
+- `contextIsolation` and `sandbox` are on. The window denies popups and navigation away from the app.
 - The renderer can only reach the five functions in `window.api`, typed by `ScreamingApi`.
+- Main accepts IPC calls only from the app window's top frame, and validates payloads instead of trusting their TypeScript types: start URLs must be http(s), limits must be whole numbers in range, and the User-Agent can't contain control characters.
+- CSV export prefixes crawled text that starts with `=`, `+`, `-`, `@`, tab or CR with `'`, so a malicious page title can't run as a formula in Excel or Google Sheets.
 - `index.html` has a Content-Security-Policy that blocks outside scripts.
 
 **Shared types.**
-`src/shared/types.ts` is the single definition of the IPC contract. It's imported everywhere through the `@shared/*` alias, which is set up in `electron.vite.config.ts` and in both tsconfigs.
+`src/shared/types.ts` is the single definition of the IPC contract, including the `IPC` channel-name constants that main and preload both use. It's imported everywhere through the `@shared/*` alias, which is set up in `electron.vite.config.ts` and in both tsconfigs.
 
 ---
 
@@ -261,12 +264,13 @@ ScreamingAI/
 │   └── electron-vite.cjs     # clears ELECTRON_RUN_AS_NODE, then runs electron-vite
 ├── src/
 │   ├── shared/
-│   │   └── types.ts          # CrawlOptions, PageResult, CrawlProgress, ScreamingApi
+│   │   └── types.ts          # CrawlOptions, PageResult, CrawlProgress, ScreamingApi, IPC channel names
 │   ├── main/                 # Electron main process (Node.js)
 │   │   ├── index.ts          # window, IPC handlers, batching, CSV save dialog
 │   │   ├── crawler.ts        # SiteCrawler: Cheerio/Playwright crawlers, queue, limits
 │   │   ├── extract.ts        # SEO field extraction + indexability rules
-│   │   └── csv.ts            # CSV serialisation
+│   │   ├── csv.ts            # CSV serialisation (formula-safe)
+│   │   └── validate.ts       # checks CrawlOptions received over IPC
 │   ├── preload/
 │   │   ├── index.ts          # contextBridge → window.api
 │   │   └── index.d.ts        # types window.api for the renderer
@@ -284,7 +288,7 @@ ScreamingAI/
 │           └── env.d.ts      # Vite client types
 ├── tests/                    # Vitest, mirrors src/
 │   ├── fixtures.ts           # makeResult() for PageResult rows
-│   ├── main/                 # extract, csv, IPC (index), SiteCrawler against a local server
+│   ├── main/                 # extract, csv, validate, IPC (index), SiteCrawler against a local server
 │   └── renderer/             # setup.ts, filters, screens, table, App flow
 └── out/                      # build output (git-ignored)
 ```
@@ -296,7 +300,7 @@ ScreamingAI/
 | Add a new SEO field | `PageResult` in `src/shared/types.ts`, `extractSeo()` in `src/main/extract.ts`, `errorResult()` in `src/main/crawler.ts`, and optionally a column in `ResultsTable.tsx` |
 | Add a new issue filter | `FILTERS` in `src/renderer/src/filters.ts` |
 | Change crawl behaviour (scope, retries, headers) | `shared` options in `src/main/crawler.ts` |
-| Add a new IPC call | `ScreamingApi` in `types.ts`, then `preload/index.ts` and an `ipcMain.handle` in `main/index.ts` |
+| Add a new IPC call | `ScreamingApi` and a channel in `IPC` in `types.ts`, then `preload/index.ts` and an `ipcMain.handle` in `main/index.ts` that calls `checkSender()` and validates its payload |
 
 ---
 

@@ -1,9 +1,10 @@
 import { join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
-import type { CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
+import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { IPC, type CrawlProgress, type PageResult } from '@shared/types';
 import { SiteCrawler } from './crawler';
 import { toCsv } from './csv';
+import { parseCrawlOptions } from './validate';
 // electron-vite copies ?asset imports into out/ and resolves them to a file path at runtime.
 import icon from '../../resources/icon.png?asset';
 
@@ -12,6 +13,8 @@ process.env.CRAWLEE_STORAGE_DIR = join(app.getPath('userData'), 'crawlee-storage
 
 const crawler = new SiteCrawler();
 let mainWindow: BrowserWindow | null = null;
+/** State of the crawl in progress, shared by the start and stop handlers. */
+let current: { crawled: number; stopping: boolean } | null = null;
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -22,8 +25,13 @@ function createWindow() {
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             contextIsolation: true,
+            sandbox: true,
         },
     });
+
+    // The window only ever shows our own UI; crawled content never loads here, but a stray link shouldn't either.
+    mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    mainWindow.webContents.on('will-navigate', (event) => event.preventDefault());
 
     if (process.env.ELECTRON_RENDERER_URL) mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
     else mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
@@ -31,20 +39,33 @@ function createWindow() {
     mainWindow.on('closed', () => (mainWindow = null));
 }
 
-const send = (channel: string, payload: unknown) => mainWindow?.webContents.send(channel, payload);
-const sendProgress = (progress: CrawlProgress) => send('crawl:progress', progress);
+/** Only our window's top frame may call main; returns that window. */
+function checkSender(event: IpcMainInvokeEvent): BrowserWindow {
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== event.sender.mainFrame) {
+        throw new Error('IPC call from an unexpected sender');
+    }
+    return mainWindow;
+}
 
-ipcMain.handle('crawl:start', async (_event, options: CrawlOptions) => {
+const send = (channel: string, payload: unknown) => mainWindow?.webContents.send(channel, payload);
+const sendProgress = (progress: CrawlProgress) => send(IPC.progress, progress);
+
+ipcMain.handle(IPC.startCrawl, async (event, input: unknown) => {
+    checkSender(event);
+    const options = parseCrawlOptions(input);
     if (crawler.isRunning) throw new Error('A crawl is already running');
+
+    const state = { crawled: 0, stopping: false };
+    current = state;
+    const status = () => (state.stopping ? 'stopping' : 'running');
 
     // Batch results so a fast crawl doesn't flood the renderer with one IPC message per page.
     let buffer: PageResult[] = [];
-    let crawled = 0;
     const flush = () => {
         if (buffer.length === 0) return;
-        send('crawl:results', buffer);
+        send(IPC.results, buffer);
         buffer = [];
-        sendProgress({ status: 'running', crawled });
+        sendProgress({ status: status(), crawled: state.crawled });
     };
     const timer = setInterval(flush, 250);
 
@@ -52,29 +73,40 @@ ipcMain.handle('crawl:start', async (_event, options: CrawlOptions) => {
     // Not awaited: the renderer gets results via events and shouldn't block on the whole crawl.
     crawler
         .run(options, (result) => {
-            crawled++;
+            state.crawled++;
             buffer.push(result);
         })
         .then(() => {
             flush();
-            sendProgress({ status: 'finished', crawled });
+            sendProgress({ status: state.stopping ? 'stopped' : 'finished', crawled: state.crawled });
         })
         .catch((err: Error) => {
             flush();
-            sendProgress({ status: 'error', crawled, message: err.message });
+            sendProgress({ status: 'error', crawled: state.crawled, message: err.message });
         })
-        .finally(() => clearInterval(timer));
+        .finally(() => {
+            clearInterval(timer);
+            if (current === state) current = null;
+        });
 });
 
-ipcMain.handle('crawl:stop', () => crawler.stop());
+ipcMain.handle(IPC.stopCrawl, (event) => {
+    checkSender(event);
+    if (!current || current.stopping) return;
+    current.stopping = true;
+    sendProgress({ status: 'stopping', crawled: current.crawled });
+    crawler.stop();
+});
 
-ipcMain.handle('export:csv', async (_event, rows: PageResult[]) => {
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow!, {
+ipcMain.handle(IPC.exportCsv, async (event, rows: unknown) => {
+    const win = checkSender(event);
+    if (!Array.isArray(rows)) throw new Error('Export expects a list of rows');
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
         defaultPath: 'crawl.csv',
         filters: [{ name: 'CSV', extensions: ['csv'] }],
     });
     if (canceled || !filePath) return null;
-    await writeFile(filePath, toCsv(rows), 'utf8');
+    await writeFile(filePath, toCsv(rows as PageResult[]), 'utf8');
     return filePath;
 });
 

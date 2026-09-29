@@ -25,24 +25,24 @@ npx vitest run tests/main/extract.test.ts   # single file; -t "name" for a singl
 
 Three Electron processes, with all crawling in main and the renderer purely UI:
 
-- **Main** (`src/main/`): `index.ts` owns the window and IPC handlers. `crawl:start` fires `SiteCrawler.run()` **without awaiting it**; rows are buffered and flushed to the renderer every 250 ms as `crawl:results` + `crawl:progress` events. `crawler.ts` picks `CheerioCrawler` (fast HTML) or `PlaywrightCrawler` (`renderJs`) and shares options/handlers between them. `extract.ts` turns a Cheerio `$` into SEO fields + indexability; `csv.ts` serializes (with UTF-8 BOM).
-- **Preload** (`src/preload/`): `contextBridge` exposes a typed `window.api` (`ScreamingApi`). `contextIsolation` is on; the renderer has no Node access and a CSP in `index.html`.
-- **Renderer** (`src/renderer/src/`): React state holds all rows in memory. `filters.ts` defines issue filters; `ResultsTable.tsx` is a hand-rolled virtualized table (fixed 28 px rows, `ResizeObserver`, no deps).
-- **Shared** (`src/shared/types.ts`): the single IPC contract (`CrawlOptions`, `PageResult`, `CrawlProgress`, `ScreamingApi`), imported via the `@shared/*` alias defined in `electron.vite.config.ts` and both tsconfigs.
+- **Main** (`src/main/`): `index.ts` owns the window and IPC handlers. Every handler first calls `checkSender()` (only our window's top frame may call main), and `crawl:start` runs its payload through `parseCrawlOptions()` in `validate.ts` (http/https only, bounded integers, no control characters in the User-Agent). `crawl:start` fires `SiteCrawler.run()` **without awaiting it**; rows are buffered and flushed to the renderer every 250 ms as `crawl:results` + `crawl:progress` events. `crawl:stop` sends `stopping`, and a stopped crawl ends as `stopped` rather than `finished`. `crawler.ts` picks `CheerioCrawler` (fast HTML) or `PlaywrightCrawler` (`renderJs`) and shares options/handlers between them. `extract.ts` turns a Cheerio `$` into SEO fields + indexability; `csv.ts` serializes (with UTF-8 BOM, and a `'` prefix on strings starting with `= + - @` tab or CR so crawled text can't run as a spreadsheet formula).
+- **Preload** (`src/preload/`): `contextBridge` exposes a typed `window.api` (`ScreamingApi`). `contextIsolation` and `sandbox` are on (the preload must stay a CJS bundle that only imports `electron`); popups and navigation are denied; the renderer has no Node access and a CSP in `index.html`.
+- **Renderer** (`src/renderer/src/`): `App.tsx` switches between three screens: `StartScreen` (settings) → `CrawlingScreen` (progress) → results. React state holds all rows in memory. IPC rejections are caught and shown (a rejected start shows as a failed crawl). `filters.ts` defines issue filters; `ResultsTable.tsx` is a hand-rolled virtualized table (fixed 28 px rows, `ResizeObserver`, no deps).
+- **Shared** (`src/shared/types.ts`): the single IPC contract (`CrawlOptions`, `PageResult`, `CrawlProgress`, `ScreamingApi`, and the `IPC` channel-name constants used by main and preload), imported via the `@shared/*` alias defined in `electron.vite.config.ts` and both tsconfigs.
 
 Key invariants in `crawler.ts`:
 
 - Each crawl creates a fresh `Configuration({ persistStorage: false })` and a uniquely named `RequestQueue`, dropped in `finally`. Crawlee's default global queue would make a second crawl see every URL as already handled. `CRAWLEE_STORAGE_DIR` is pointed at Electron `userData` so nothing lands in `./storage`.
-- Both modes funnel into one `handlePage()` → `extractSeo()` path (Playwright uses `parseWithCheerio()`), so extraction logic is written once. Each mode reads status/headers from its own response type (`response.statusCode` vs `response.status()`).
+- Both modes funnel into one `handlePage()` → `extractSeo()` path (Playwright uses `parseWithCheerio()`), so extraction logic is written once. `handlePage()` runs `detectBotProtection()` first; a blocked/challenge page becomes an error-style row and its links are not enqueued. Each mode reads status/headers from its own response type (`response.statusCode` vs `response.status()`).
 - HTTP 4xx/5xx are results, not failures: Cheerio mode sets `ignoreHttpErrorStatusCodes` 400–599; `useSessionPool: false` gives the same behavior in Playwright mode. Links are only enqueued when status < 400. Network-level failures go through `failedRequestHandler` → `errorResult()` rows.
 - Depth, page limits and robots.txt come from Crawlee options (`maxCrawlDepth`, `maxRequestsPerCrawl`, `respectRobotsTxtFile`) — don't reimplement them. Scope is `same-hostname` (`www.` vs bare domain are different hosts).
-- `stop()` is graceful (in-flight finish); `teardown()` is immediate and used on window close. Only one crawl runs at a time.
+- `stop()` is graceful (in-flight finish); `teardown()` is immediate and runs on `window-all-closed`. Both set `stopRequested`, which `crawl()` checks after the queue opens, so a stop during setup (before `this.crawler` exists) isn't lost. Only one crawl runs at a time.
 
 ## Common change recipes
 
 - **New SEO field:** `PageResult` in `types.ts` → `extractSeo()` in `extract.ts` → `errorResult()` in `crawler.ts` (must stay in sync or typecheck fails) → optionally a column in `ResultsTable.tsx`.
 - **New issue filter:** `FILTERS` in `src/renderer/src/filters.ts`.
-- **New IPC call:** `ScreamingApi` in `types.ts` → `preload/index.ts` → `ipcMain.handle` in `main/index.ts`.
+- **New IPC call:** `ScreamingApi` and a channel name in `IPC` in `types.ts` → `preload/index.ts` → `ipcMain.handle(IPC.x, …)` in `main/index.ts`, calling `checkSender(event)` first and validating the payload (treat it as `unknown`).
 
 ## Version / config gotchas
 

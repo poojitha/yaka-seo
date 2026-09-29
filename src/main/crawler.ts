@@ -11,6 +11,8 @@ type OnPage = (result: PageResult) => void;
 export class SiteCrawler {
     private crawler: CheerioCrawler | PlaywrightCrawler | null = null;
     private busy = false;
+    /** Set by stop()/teardown(); covers the setup window before `this.crawler` exists. */
+    private stopRequested = false;
 
     get isRunning() {
         return this.busy;
@@ -20,6 +22,7 @@ export class SiteCrawler {
         if (this.busy) throw new Error('A crawl is already running');
         // Claimed before the first await; `this.crawler` is only set after setup, so checking it let a second run slip in.
         this.busy = true;
+        this.stopRequested = false;
         try {
             await this.crawl(options, onPage);
         } finally {
@@ -31,6 +34,11 @@ export class SiteCrawler {
         // Fresh in-memory storage per crawl so a previous crawl's queue doesn't mark URLs as already handled.
         const config = new Configuration({ persistStorage: false, purgeOnStart: true });
         const requestQueue = await RequestQueue.open(`crawl-${Date.now()}`, { config });
+        // A Stop that arrived while the queue was opening would otherwise be lost (there was no crawler to stop yet).
+        if (this.stopRequested) {
+            await requestQueue.drop().catch(() => {});
+            return;
+        }
 
         const shared = {
             requestQueue,
@@ -128,11 +136,17 @@ export class SiteCrawler {
 
     /** Graceful stop: in-flight requests finish, nothing new is started. */
     stop() {
+        if (!this.busy) return;
+        this.stopRequested = true;
         this.crawler?.stop('Stopped by user');
     }
 
     /** Immediate shutdown, used when the app quits. */
     async teardown() {
+        if (!this.busy) return;
+        this.stopRequested = true;
+        // stop() too, in case the crawler is still starting up and has no pool for teardown() to abort yet.
+        this.crawler?.stop('App closing');
         await this.crawler?.teardown();
     }
 }

@@ -6,6 +6,9 @@ import { CrawlingScreen } from './CrawlingScreen';
 import { StartScreen } from './StartScreen';
 import logo from './assets/logo.png';
 
+/** Electron wraps rejections from main as "Error invoking remote method 'x': Error: msg"; keep just msg. */
+const ipcMessage = (err: unknown) => (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']*': (Error: )?/, '');
+
 export function App() {
     // Kept here (not in StartScreen) so "New crawl" reopens the setup screen with the last settings.
     const [options, setOptions] = useState<CrawlOptions>({ startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true, userAgent: '' });
@@ -16,6 +19,7 @@ export function App() {
     const [filterId, setFilterId] = useState('all');
     const [search, setSearch] = useState('');
     const [selected, setSelected] = useState<PageResult | null>(null);
+    const [exportError, setExportError] = useState('');
 
     useEffect(() => {
         const offResults = window.api.onResults((rows) => setResults((prev) => prev.concat(rows)));
@@ -35,13 +39,32 @@ export function App() {
         setFilterId('all');
         setSearch('');
         setProgress({ status: 'idle', crawled: 0 });
+        setExportError('');
         setScreen('crawling');
-        await window.api.startCrawl(opts);
+        try {
+            await window.api.startCrawl(opts);
+        } catch (err) {
+            setProgress({ status: 'error', crawled: 0, message: ipcMessage(err) });
+        }
     };
 
     const stop = async () => {
+        // Main confirms with its own 'stopping' event; this just makes the button react immediately.
         setProgress((p) => ({ ...p, status: 'stopping' }));
-        await window.api.stopCrawl();
+        try {
+            await window.api.stopCrawl();
+        } catch (err) {
+            setProgress((p) => ({ ...p, message: ipcMessage(err) }));
+        }
+    };
+
+    const exportCsv = async () => {
+        setExportError('');
+        try {
+            await window.api.exportCsv(visible);
+        } catch (err) {
+            setExportError(`Export failed: ${ipcMessage(err)}`);
+        }
     };
 
     const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.id, results.filter(f.test).length])), [results]);
@@ -81,7 +104,7 @@ export function App() {
                         New crawl
                     </button>
                 )}
-                <button type="button" onClick={() => window.api.exportCsv(visible)} disabled={visible.length === 0}>
+                <button type="button" onClick={exportCsv} disabled={visible.length === 0}>
                     Export CSV
                 </button>
             </div>
@@ -114,6 +137,7 @@ export function App() {
                 <span>{progress.status.toUpperCase()}</span>
                 <span>{results.length} URLs crawled</span>
                 {progress.message && <span className="error">{progress.message}</span>}
+                {exportError && <span className="error">{exportError}</span>}
             </div>
         </div>
     );

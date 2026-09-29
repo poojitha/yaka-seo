@@ -73,6 +73,15 @@ describe('CrawlingScreen', () => {
         expect(screen.queryByText(/keeps running in the background/)).toBeNull();
     });
 
+    it('shows "Crawl stopped" and View results after a stop', () => {
+        const { container } = setup({ status: 'stopped', crawled: 7 }, { crawled: 7 });
+        expect(screen.getByRole('heading').textContent).toBe('Crawl stopped');
+        expect(container.querySelector('.loader.ok')?.textContent).toBe('✓');
+        expect(screen.getByText('7 pages crawled')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /Stop/ })).toBeNull();
+        expect(screen.getByRole('button', { name: 'View results' })).toBeTruthy();
+    });
+
     it('shows the error message when the crawl fails', () => {
         const { container } = setup({ status: 'error', crawled: 2, message: 'Browser crashed' }, { crawled: 2 });
         expect(screen.getByRole('heading').textContent).toBe('Crawl failed');

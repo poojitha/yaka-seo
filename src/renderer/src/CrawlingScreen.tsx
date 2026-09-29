@@ -14,18 +14,25 @@ interface Props {
 
 export function CrawlingScreen({ startUrl, maxPages, progress, currentUrl, crawled, onStop, onContinue }: Props) {
     const { status } = progress;
-    const done = status === 'finished' || status === 'error';
+    const done = status === 'finished' || status === 'stopped' || status === 'error';
     // 'idle' only lasts until main sends its first 'running' event, so show it as starting.
-    const heading = status === 'finished' ? 'Crawl complete' : status === 'error' ? 'Crawl failed' : status === 'stopping' ? 'Stopping…' : 'Crawling…';
+    const heading = {
+        finished: 'Crawl complete',
+        stopped: 'Crawl stopped',
+        error: 'Crawl failed',
+        stopping: 'Stopping…',
+        running: 'Crawling…',
+        idle: 'Crawling…',
+    }[status];
     const percent = Math.min(100, (crawled / Math.max(1, maxPages)) * 100);
 
     return (
         <div className="start-screen">
             <div className="start-card crawling">
-                <div className={`loader ${status === 'finished' ? 'ok' : status === 'error' ? 'fail' : ''}`}>
+                <div className={`loader ${status === 'finished' || status === 'stopped' ? 'ok' : status === 'error' ? 'fail' : ''}`}>
                     {!done && <span className="loader-ring" />}
                     <img className="loader-logo" src={logo} alt="" />
-                    {done && <span className="loader-badge">{status === 'finished' ? '✓' : '!'}</span>}
+                    {done && <span className="loader-badge">{status === 'error' ? '!' : '✓'}</span>}
                 </div>
                 <h1>{heading}</h1>
                 <div className="crawl-target" title={startUrl}>{startUrl}</div>

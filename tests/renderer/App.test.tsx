@@ -169,4 +169,35 @@ describe('App', () => {
         expect(screen.getByText('Browser crashed')).toBeTruthy();
         expect(screen.getByText('ERROR')).toBeTruthy();
     });
+
+    it('shows main rejecting the start as a failed crawl, without the IPC prefix', async () => {
+        api.startCrawl.mockRejectedValue(new Error("Error invoking remote method 'crawl:start': Error: startUrl must be an http or https URL"));
+        render(<App />);
+        fireEvent.change(field('Website URL'), { target: { value: 'ftp://example.com/' } });
+        await act(async () => click('Start'));
+        expect(screen.getByRole('heading').textContent).toBe('Crawl failed');
+        expect(screen.getByText('startUrl must be an http or https URL')).toBeTruthy();
+    });
+
+    it('shows an export failure in the status bar', async () => {
+        api.exportCsv.mockRejectedValue(new Error("Error invoking remote method 'export:csv': Error: EACCES: permission denied"));
+        render(<App />);
+        await startCrawl();
+        act(() => {
+            emitResults(pages);
+            emitProgress({ status: 'finished', crawled: 3 });
+        });
+        click('View results');
+        await act(async () => click('Export CSV'));
+        expect(screen.getByText('Export failed: EACCES: permission denied')).toBeTruthy();
+    });
+
+    it('after a stop, the results toolbar offers New crawl and the status bar says STOPPED', async () => {
+        render(<App />);
+        await startCrawl();
+        click('Show live results');
+        act(() => emitProgress({ status: 'stopped', crawled: 0 }));
+        expect(screen.getByRole('button', { name: 'New crawl' })).toBeTruthy();
+        expect(screen.getByText('STOPPED')).toBeTruthy();
+    });
 });
