@@ -4,7 +4,7 @@ Planned work for Yaka|SEO, roughly in priority order. For what the app can't do 
 
 1. **Screaming Frog parity follow-ups** (from comparing exports on crawler-test.com):
    - JS mode: statuses the browser won't display (204, 205, 304, 407), downloads (PDF), and redirect loops become error rows; fall back to a plain HTTP fetch for those.
-   - Readability: Screaming Frog counts sentences and syllables differently (Flesch often differs by 10-30 points), and by default leaves `<nav>` and `<footer>` out of word counts.
+   - Readability: Screaming Frog counts sentences and syllables differently (Flesch often differs by 10-30 points), and by default leaves `<nav>` and `<footer>` out of word counts. Its word count is also often exactly 1 higher than ours on crawler-test.com pages (cause not yet found).
    - Title/description pixel widths: Screaming Frog uses hinted (grid-fitted) glyph widths; ours are rounded design widths, off by up to ~35 px on i/f-heavy titles.
    - JS mode transferred bytes are ~175 bytes higher than Screaming Frog's (HTTP/2 header bytes, it appears).
    - Title 2 / Meta Description 2 / Canonical 2 columns, and H1 text from an `<img alt>` inside the H1.

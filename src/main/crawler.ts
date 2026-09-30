@@ -380,7 +380,7 @@ export class SiteCrawler {
                             };
                         },
                     ],
-                    async requestHandler({ request, response, body, $, enqueueLinks, addRequests }) {
+                    async requestHandler({ request, response, body, contentType, $, enqueueLinks, addRequests }) {
                         const headers = Object.fromEntries(
                             Object.entries(response.headers).map(([k, v]) => [
                                 k.toLowerCase(),
@@ -403,10 +403,13 @@ export class SiteCrawler {
                             blockedNavigation: null,
                             rawHrefs: null,
                         };
-                        // Crawlee only parses HTML and XML; anything else gets an empty document, so its row
-                        // still carries the header-based fields (X-Robots-Tag, Link canonical). ($ is typed as always
-                        // set, but isn't.)
-                        await handlePage(request, pageResponse, $ ?? loadHtml(''), { enqueueLinks, addRequests });
+                        // Crawlee parses HTML with htmlparser2, which doesn't build the tree a browser does: no implied
+                        // <body> around bare text, and a body-only element (<div>, <p>…) inside <head> doesn't end the head. Pages
+                        // are re-parsed with Cheerio's HTML5 parser so fields match what search engines see.
+                        // Crawlee only parses HTML and XML; anything else gets an empty document, so its row still
+                        // carries the header-based fields (X-Robots-Tag, Link canonical). ($ is typed as always set, but isn't.)
+                        const document = !$ ? loadHtml('') : contentType.type.includes('xml') ? $ : loadHtml(buffer.toString('utf8'));
+                        await handlePage(request, pageResponse, document, { enqueueLinks, addRequests });
                     },
                 },
                 config,
