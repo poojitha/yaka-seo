@@ -27,6 +27,7 @@ import { SiteCrawler } from '../../src/main/crawler';
  * Unlinked: /slow (concurrency), /spa (JavaScript), /blocked and /challenge (bot protection),
  * /docs/guide/page (response headers, size and hash), /weight/a ─ /weight/b (transferred bytes),
  * /dup ─ /dup/1, /dup/2 (near duplicates of each other), /dup/3 (different text), /dup/noindex (copy of /dup/1).
+ * /bad-charset is HTML served with charset=utf-6, which no decoder knows.
  * Redirects: /chain 302 -> /redirect 301 -> /c, /loop 302 -> itself, /meta-refresh and /refresh-header (-> /c),
  * /js-redirect (location.replace -> /c), /push-state (history.pushState, not a redirect).
  * /files links to non-HTML responses: an image, a PDF (noindex and canonical by header), a 204, an unknown
@@ -124,6 +125,8 @@ const routes: Record<string, Route> = {
     '/dup/2': page(`<p>${ARTICLE.replace('sentence 150', 'sentence changed')}</p>${links('/dup', '/dup/1')}`, '<title>Two</title>'),
     '/dup/3': page(`<p>${OTHER_ARTICLE}</p>`, '<title>Three</title>'),
     '/dup/noindex': page(`<p>${ARTICLE}</p>`, '<title>Copy</title><meta name="robots" content="noindex">'),
+
+    '/bad-charset': page('<p>Readable anyway</p>', '<title>Bad charset</title>', 200, { 'content-type': 'text/html; charset=utf-6' }),
 
     // Linked files that aren't HTML: each is still a row, with its status and headers.
     '/files': page(links('/files/pixel.png', '/files/doc.pdf', '/files/empty', '/files/odd', '/files/to-image'), '<title>Files</title>'),
@@ -352,6 +355,17 @@ describe('SiteCrawler (fast HTML mode)', () => {
         // A redirect whose target isn't HTML still queues the target.
         expect(byPath.get('/files/to-image')).toMatchObject({ status: 301, redirectUrl: `${origin}/files/moved.png` });
         expect(byPath.get('/files/moved.png')).toMatchObject({ status: 200, contentType: 'image/png', error: null });
+    });
+
+    it('reads a page with an unknown charset as UTF-8 instead of failing it', async () => {
+        const { byPath } = await crawl('/bad-charset');
+        expect(byPath.get('/bad-charset')).toMatchObject({
+            status: 200,
+            contentType: 'text/html; charset=utf-6',
+            title: 'Bad charset',
+            wordCount: 2,
+            error: null,
+        });
     });
 
     it('reports response details: status text, HTTP version, headers, size, hash, folder depth and timestamp', async () => {

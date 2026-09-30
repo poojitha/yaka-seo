@@ -68,6 +68,21 @@ type BrowserGlobals = {
 
 const HTTP_VERSIONS: Record<string, string> = { 'http/1.0': '1.0', 'http/1.1': '1.1', h2: '2', '2.0': '2', h3: '3' };
 
+/**
+ * CheerioCrawler that reads a response with an unknown charset (`charset=utf-6`) as UTF-8 instead of failing it.
+ * Browsers ignore a charset label they don't know, and so does Screaming Frog.
+ */
+class LenientCheerioCrawler extends CheerioCrawler {
+    protected override _encodeResponse(...[request, response, encoding]: Parameters<CheerioCrawler['_encodeResponse']>) {
+        try {
+            return super._encodeResponse(request, response, encoding);
+        } catch {
+            // Thrown before anything is read, only for an encoding neither Node nor iconv-lite knows. No encoding means UTF-8.
+            return super._encodeResponse(request, response, undefined as unknown as BufferEncoding);
+        }
+    }
+}
+
 /** Runs one crawl at a time using either a fast HTML crawler or a headless-browser crawler. */
 export class SiteCrawler {
     private crawler: CheerioCrawler | PlaywrightCrawler | null = null;
@@ -342,7 +357,7 @@ export class SiteCrawler {
                 config,
             );
         } else {
-            this.crawler = new CheerioCrawler(
+            this.crawler = new LenientCheerioCrawler(
                 {
                     ...shared,
                     ignoreHttpErrorStatusCodes: HTTP_ERROR_CODES,
