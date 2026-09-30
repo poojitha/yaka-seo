@@ -351,6 +351,8 @@ ScreamingAI/
 | `responseTimeMs` | Time from navigation start to handler (includes rendering in JS mode) |
 | `crawlTimestamp` | When the page was processed (ISO 8601) |
 | `sizeBytes`, `hash` | Uncompressed size and MD5 of the response body. Equal hashes mean exact duplicates. In JS mode these are for the raw HTML, not the rendered DOM. |
+| `transferredBytes` | Response body bytes as received, before decompression (headers excluded). In JS mode this is what Chromium reports, which also counts chunked-encoding framing. |
+| `totalTransferredBytes` | JS mode: `transferredBytes` of the page plus every resource it loaded by the `load` event (CSS, JS, images, fonts…), with the browser cache off so each page counts what a first-time visitor downloads. Fast HTML mode fetches only the HTML, so this equals `transferredBytes`. |
 | `title`, `titleLength` | `<title>` text and length |
 | `metaDescription`, `metaDescriptionLength` | Meta description and length |
 | `metaKeywords`, `metaKeywordsLength` | Meta keywords and length (ignored by Google) |

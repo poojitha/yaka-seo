@@ -18,6 +18,8 @@ export function makeResult(overrides: Partial<PageResult> = {}): PageResult {
         responseTimeMs: 120,
         crawlTimestamp: '2026-01-01T00:00:00.000Z',
         sizeBytes: 20000,
+        transferredBytes: 5000,
+        totalTransferredBytes: 250000,
         hash: 'd41d8cd98f00b204e9800998ecf8427e',
         title: 'Example page',
         titleLength: 12,

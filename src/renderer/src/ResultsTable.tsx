@@ -29,6 +29,8 @@ const COLUMNS: Column[] = [
     { key: 'folderDepth', label: 'Folders', width: 65 },
     { key: 'responseTimeMs', label: 'Time (ms)', width: 80 },
     { key: 'sizeBytes', label: 'Size (B)', width: 80 },
+    { key: 'transferredBytes', label: 'Transferred (B)', width: 110 },
+    { key: 'totalTransferredBytes', label: 'Total transf. (B)', width: 120 },
     { key: 'canonical', label: 'Canonical', width: 280 },
     { key: 'metaRobots', label: 'Meta robots', width: 150 },
     { key: 'xRobotsTag', label: 'X-Robots-Tag', width: 150 },

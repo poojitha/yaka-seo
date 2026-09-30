@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { log } from 'crawlee';
 import type { CrawlOptions, PageResult } from '@shared/types';
@@ -23,7 +24,7 @@ import { SiteCrawler } from '../../src/main/crawler';
  *   └─ localhost / example.org links: other hostnames, out of scope
  *
  * Unlinked: /slow (concurrency), /spa (JavaScript), /blocked and /challenge (bot protection),
- * /docs/guide/page (response headers, size and hash).
+ * /docs/guide/page (response headers, size and hash), /weight/a ─ /weight/b (transferred bytes).
  */
 const html = (body: string, head = '') => `<!doctype html><html><head>${head}</head><body>${body}</body></html>`;
 const links = (...paths: string[]) => paths.map((p) => `<a href="${p}">${p}</a>`).join('\n');
@@ -46,6 +47,14 @@ let inFlight = 0;
 let maxInFlight = 0;
 /** User-Agent header of each page request, by path. */
 let userAgents = new Map<string, string>();
+
+const DETAILS_BODY = html('<h1>Guide</h1><p>Short text.</p>', '<title>Guide</title>');
+const WEIGHT_RESOURCES = '<link rel="stylesheet" href="/weight/style.css"><img src="/weight/pixel.png">';
+const WEIGHT_A_BODY = html(`${WEIGHT_RESOURCES}${links('/weight/b')}<p>${'Compressible text. '.repeat(200)}</p>`, '<title>A</title>');
+const WEIGHT_A_GZIP = gzipSync(WEIGHT_A_BODY);
+const WEIGHT_CSS = `body { color: #333; }\n${'/* padding */\n'.repeat(100)}`;
+// A valid 1x1 PNG, so the browser finishes loading it.
+const WEIGHT_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 
 const routes: Record<string, Route> = {
     '/robots.txt': (_req, res) => {
@@ -98,8 +107,24 @@ const routes: Record<string, Route> = {
         });
         res.end(DETAILS_BODY);
     },
+
+    // Page weight: /weight/a is gzipped and chunked (no Content-Length); both pages load the same cacheable CSS and image.
+    '/weight/a': (_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-encoding': 'gzip' });
+        res.write(WEIGHT_A_GZIP.subarray(0, 100));
+        res.end(WEIGHT_A_GZIP.subarray(100));
+    },
+    '/weight/b': page(WEIGHT_RESOURCES, '<title>B</title>'),
+    '/weight/style.css': (_req, res) => {
+        // Explicit Content-Length: after writeHead() Node would otherwise send it chunked, and the browser counts chunk framing.
+        res.writeHead(200, { 'content-type': 'text/css', 'cache-control': 'public, max-age=3600', 'content-length': Buffer.byteLength(WEIGHT_CSS) });
+        res.end(WEIGHT_CSS);
+    },
+    '/weight/pixel.png': (_req, res) => {
+        res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=3600', 'content-length': WEIGHT_PNG.length });
+        res.end(WEIGHT_PNG);
+    },
 };
-const DETAILS_BODY = html('<h1>Guide</h1><p>Short text.</p>', '<title>Guide</title>');
 
 beforeAll(async () => {
     // Keep Crawlee from writing ./storage and from logging every request.
@@ -221,6 +246,22 @@ describe('SiteCrawler (fast HTML mode)', () => {
         });
         expect(Date.parse(row.crawlTimestamp)).toBeGreaterThanOrEqual(before - 1000);
         expect(byPath.size).toBe(1);
+    });
+
+    it('reports compressed bytes transferred for a gzipped, chunked page; Total Transferred is the same (HTML only)', async () => {
+        const { byPath } = await crawl('/weight/a', { maxDepth: 0 });
+        expect(byPath.get('/weight/a')).toMatchObject({
+            sizeBytes: Buffer.byteLength(WEIGHT_A_BODY),
+            transferredBytes: WEIGHT_A_GZIP.length,
+            totalTransferredBytes: WEIGHT_A_GZIP.length,
+        });
+        expect(WEIGHT_A_GZIP.length).toBeLessThan(Buffer.byteLength(WEIGHT_A_BODY) / 2);
+    });
+
+    it('reports transferred bytes equal to the size for an uncompressed page', async () => {
+        const { byPath } = await crawl('/docs/guide/page', { maxDepth: 0 });
+        const size = Buffer.byteLength(DETAILS_BODY);
+        expect(byPath.get('/docs/guide/page')).toMatchObject({ sizeBytes: size, transferredBytes: size, totalTransferredBytes: size });
     });
 
     it('gives 404 rows their status text', async () => {
@@ -375,6 +416,24 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
 
         const redirect = await crawl('/redirect', { renderJs: true, maxDepth: 0 });
         expect(redirect.byPath.get('/redirect')).toMatchObject({ finalUrl: `${origin}/c`, redirectType: 'HTTP Redirect' });
+    });
+
+    it('reports the page transferred bytes, and Total Transferred including every resource, with the cache off', async () => {
+        // One at a time, so /weight/b loads after /weight/a has already fetched the shared CSS and image.
+        const { byPath } = await crawl('/weight/a', { renderJs: true, concurrency: 1 });
+        const resources = Buffer.byteLength(WEIGHT_CSS) + WEIGHT_PNG.length;
+        const a = byPath.get('/weight/a')!;
+        expect(a.sizeBytes).toBe(Buffer.byteLength(WEIGHT_A_BODY));
+        // The browser counts bytes on the wire, which for this chunked response includes the chunk-size lines (17 bytes).
+        expect(a.transferredBytes).toBeGreaterThanOrEqual(WEIGHT_A_GZIP.length);
+        expect(a.transferredBytes).toBeLessThan(WEIGHT_A_GZIP.length + 32);
+        expect(a.totalTransferredBytes).toBe(a.transferredBytes! + resources);
+
+        const b = byPath.get('/weight/b')!;
+        expect(b.transferredBytes).toBeGreaterThanOrEqual(b.sizeBytes!);
+        // Counted again although /weight/a cached them.
+        expect(b.totalTransferredBytes).toBe(b.transferredBytes! + resources);
+        expect(requested.filter((p) => p === '/weight/style.css')).toHaveLength(2);
     });
 
     it('reports a challenge page as blocked in browser mode too', async () => {

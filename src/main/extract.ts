@@ -17,6 +17,8 @@ type ResponseFields =
     | 'responseTimeMs'
     | 'crawlTimestamp'
     | 'sizeBytes'
+    | 'transferredBytes'
+    | 'totalTransferredBytes'
     | 'hash'
     | 'error';
 type SeoFields = Omit<PageResult, ResponseFields>;

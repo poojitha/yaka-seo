@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { STATUS_CODES } from 'node:http';
 import { CheerioCrawler, Configuration, PlaywrightCrawler, RequestQueue, type CheerioRoot, type Request } from 'crawlee';
+import type { Page, Request as BrowserRequest } from 'playwright';
 import type { CrawlOptions, PageResult } from '@shared/types';
 import { detectBotProtection, extractSeo } from './extract';
 
@@ -17,6 +18,8 @@ interface PageResponse {
     /** As reported: '1.1', '2.0', 'h2', 'http/1.1'... */
     httpVersion: string;
     body: Buffer | null;
+    transferredBytes: number | null;
+    totalTransferredBytes: number | null;
     /** Whether a redirect to `request.loadedUrl` was an HTTP 3xx (otherwise it was JavaScript). */
     redirectedByHttp: boolean;
 }
@@ -88,6 +91,8 @@ export class SiteCrawler {
                 httpVersion: HTTP_VERSIONS[res.httpVersion.toLowerCase()] ?? res.httpVersion,
                 lastModified: headers['last-modified'] ?? '',
                 sizeBytes: body?.length ?? null,
+                transferredBytes: res.transferredBytes,
+                totalTransferredBytes: res.totalTransferredBytes,
                 hash: body ? createHash('md5').update(body).digest('hex') : '',
             };
             const blockedBy = detectBotProtection(status, headers, $);
@@ -115,24 +120,50 @@ export class SiteCrawler {
 
         const { userAgent } = options;
         if (options.renderJs) {
+            /** Every request each page has finished loading, for Total Transferred. */
+            const finishedRequests = new WeakMap<Page, BrowserRequest[]>();
             this.crawler = new PlaywrightCrawler(
                 {
                     ...shared,
                     headless: true,
                     // Crawlee's fingerprints override the User-Agent, so they're only used for the browser ('') setting.
                     ...(userAgent && { browserPoolOptions: { useFingerprints: false }, launchContext: { userAgent } }),
+                    preNavigationHooks: [
+                        ...shared.preNavigationHooks,
+                        async ({ page }) => {
+                            const finished: BrowserRequest[] = [];
+                            page.on('requestfinished', (r) => finished.push(r));
+                            finishedRequests.set(page, finished);
+                            // Pages share a browser cache, so CSS/JS fetched by an earlier page would count as 0 bytes.
+                            // Total Transferred should be what a first-time visitor downloads.
+                            // Chromium only applies setCacheDisabled while the session has the Network domain enabled.
+                            const cdp = await page.context().newCDPSession(page);
+                            await cdp.send('Network.enable').catch(() => {});
+                            await cdp.send('Network.setCacheDisabled', { cacheDisabled: true }).catch(() => {});
+                        },
+                    ],
                     async requestHandler({ request, response, page, parseWithCheerio, enqueueLinks }) {
                         const $ = await parseWithCheerio();
                         // Playwright's Response doesn't expose the protocol; Navigation Timing does ('h2', 'http/1.1').
                         const httpVersion = await page
                             .evaluate(() => (performance.getEntriesByType('navigation')[0] as { nextHopProtocol?: string } | undefined)?.nextHopProtocol ?? '')
                             .catch(() => '');
+                        const bodySize = (r: BrowserRequest) =>
+                            r
+                                .sizes()
+                                // Negative for a cached response (Playwright subtracts header size from 0 bytes on the wire).
+                                .then((s) => Math.max(0, s.responseBodySize))
+                                .catch(() => 0);
+                        // Resources still loading when the handler runs (after the load event) aren't counted.
+                        const resourceSizes = await Promise.all((finishedRequests.get(page) ?? []).map(bodySize));
                         const pageResponse: PageResponse = {
                             status: response?.status() ?? null,
                             // allHeaders(), not headers(): the latter omits Set-Cookie.
                             headers: (await response?.allHeaders().catch(() => null)) ?? response?.headers() ?? {},
                             httpVersion,
                             body: (await response?.body().catch(() => null)) ?? null,
+                            transferredBytes: response ? await bodySize(response.request()) : null,
+                            totalTransferredBytes: resourceSizes.reduce((a, b) => a + b, 0),
                             redirectedByHttp: !!response?.request().redirectedFrom(),
                         };
                         await handlePage(request, pageResponse, $, enqueueLinks);
@@ -141,14 +172,19 @@ export class SiteCrawler {
                 config,
             );
         } else {
+            const rawBodyBytes = new WeakMap<Request, ByteCounter>();
             this.crawler = new CheerioCrawler(
                 {
                     ...shared,
                     ignoreHttpErrorStatusCodes: HTTP_ERROR_CODES,
                     preNavigationHooks: [
                         ...shared.preNavigationHooks,
-                        (_ctx, gotOptions) => {
+                        ({ request }, gotOptions) => {
                             if (userAgent) gotOptions.headers = { ...gotOptions.headers, 'user-agent': userAgent };
+                            const counter: ByteCounter = { bytes: null };
+                            rawBodyBytes.set(request, counter);
+                            const hook = countRawBodyBytes(counter) as unknown as NonNullable<NonNullable<typeof gotOptions.hooks>['beforeRequest']>[number];
+                            gotOptions.hooks = { ...gotOptions.hooks, beforeRequest: [...(gotOptions.hooks?.beforeRequest ?? []), hook] };
                         },
                     ],
                     async requestHandler({ request, response, body, $, enqueueLinks }) {
@@ -159,11 +195,17 @@ export class SiteCrawler {
                                 Array.isArray(v) ? v.join(k.toLowerCase() === 'set-cookie' ? '\n' : ',') : (v ?? ''),
                             ]),
                         );
+                        const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
+                        // Uncompressed responses aren't counted: the body as received is the body.
+                        const transferred = rawBodyBytes.get(request)?.bytes ?? buffer.length;
                         const pageResponse: PageResponse = {
                             status: response.statusCode ?? null,
                             headers,
                             httpVersion: response.httpVersion,
-                            body: Buffer.isBuffer(body) ? body : Buffer.from(body),
+                            body: buffer,
+                            transferredBytes: transferred,
+                            // Only the HTML is fetched in this mode.
+                            totalTransferredBytes: transferred,
                             // No JavaScript runs in this mode, so any redirect was HTTP.
                             redirectedByHttp: true,
                         };
@@ -214,6 +256,45 @@ function baseResult(request: Request) {
     };
 }
 
+type RequestFunction = (...args: unknown[]) => unknown;
+type ClientRequestLike = NodeJS.EventEmitter & { res?: NodeJS.EventEmitter | null };
+
+/** Raw (still compressed) body bytes of the final response; null if it wasn't compressed. */
+type ByteCounter = { bytes: number | null };
+
+/**
+ * got `beforeRequest` hook that counts a response's body bytes as received, before decompression (fast HTML mode).
+ * got-scraping swaps a compressed response for a decompressing stream before got sees it, so got's own byte counts
+ * are of decompressed data. The raw response is still reachable as the ClientRequest's `res`, and it's already
+ * flowing (piped into the decompressor), so listening to its data changes nothing. Uncompressed responses are left
+ * alone: got reads those in paused mode, and a data listener would take the data from it.
+ * Runs after got-scraping's own hooks, so it wraps the request function that is actually used (HTTP/1.1 or HTTP/2).
+ */
+function countRawBodyBytes(counter: ByteCounter) {
+    return (options: { request?: RequestFunction; getRequestFunction(): RequestFunction | undefined }) => {
+        const original = options.getRequestFunction();
+        if (!original) return;
+        const watch = (req: ClientRequestLike) => {
+            // Once per response, so after a redirect only the final response counts.
+            req.on('response', (response: unknown) => {
+                const raw = req.res;
+                counter.bytes = null;
+                if (!raw || raw === response) return;
+                counter.bytes = 0;
+                raw.on('data', (chunk: Buffer) => {
+                    counter.bytes! += chunk.length;
+                });
+            });
+            return req;
+        };
+        // The HTTP/2 request function returns a promise of the request.
+        options.request = (...args) => {
+            const req = original(...args);
+            return req instanceof Promise ? req.then(watch) : watch(req as ClientRequestLike);
+        };
+    };
+}
+
 function errorResult(request: Request, message: string): PageResult {
     return {
         ...baseResult(request),
@@ -225,6 +306,8 @@ function errorResult(request: Request, message: string): PageResult {
         lastModified: '',
         cookies: '',
         sizeBytes: null,
+        transferredBytes: null,
+        totalTransferredBytes: null,
         hash: '',
         title: '',
         titleLength: 0,

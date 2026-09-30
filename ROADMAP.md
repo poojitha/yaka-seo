@@ -3,7 +3,7 @@
 Planned work for Yaka|SEO, roughly in priority order. For what the app can't do today, see [Known limitations](README.md#known-limitations) in the README.
 
 1. **Remaining Screaming Frog per-page fields.** The fields that come straight from the response and HTML are done (see "Data collected per URL" in the README). Still to do:
-   - **Size:** transferred (compressed) bytes, total transferred including resources (JS rendering), CO2 estimate and carbon rating (Sustainable Web Design model).
+   - **Carbon:** CO2 estimate and carbon rating (Sustainable Web Design model), from the transferred bytes already collected.
    - **SERP pixel widths** for titles (truncated at about 580 px) and meta descriptions (about 920–990 px), using a per-character width table for Google's font.
    - **JS-only outlinks** (unique internal and external): compare the raw HTML with the rendered DOM in JS mode.
    - **Redirect chains:** each hop as its own row with its 3xx status, as Screaming Frog reports them. Today a redirect is one row with `finalUrl`.

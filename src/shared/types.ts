@@ -35,6 +35,13 @@ export interface PageResult {
     crawlTimestamp: string;
     /** Uncompressed size of the response body. */
     sizeBytes: number | null;
+    /** Response body bytes as sent over the network (compressed, if the server compressed it; headers excluded). */
+    transferredBytes: number | null;
+    /**
+     * In JS mode, `transferredBytes` summed over the page and every resource it loaded (CSS, JS, images, fonts...),
+     * measured with the browser cache off. In fast HTML mode only the HTML is fetched, so this equals `transferredBytes`.
+     */
+    totalTransferredBytes: number | null;
     /** MD5 of the response body; equal hashes mean exact duplicate pages. */
     hash: string;
     title: string;
