@@ -3,6 +3,7 @@ import { STATUS_CODES } from 'node:http';
 import { CheerioCrawler, Configuration, PlaywrightCrawler, RequestQueue, type CheerioRoot, type Request } from 'crawlee';
 import type { Page, Request as BrowserRequest } from 'playwright';
 import type { CrawlOptions, PageResult } from '@shared/types';
+import { carbonRating, co2Milligrams } from './carbon';
 import { detectBotProtection, extractSeo } from './extract';
 
 // Report 4xx/5xx pages as results instead of letting Crawlee treat them as failures and retry.
@@ -84,6 +85,7 @@ export class SiteCrawler {
             enqueueLinks: (opts: { strategy: 'same-hostname' }) => Promise<unknown>,
         ) => {
             const { status, headers, body } = res;
+            const co2Mg = res.totalTransferredBytes === null ? null : co2Milligrams(res.totalTransferredBytes);
             const response = {
                 status,
                 statusText: (status !== null && STATUS_CODES[status]) || '',
@@ -93,6 +95,9 @@ export class SiteCrawler {
                 sizeBytes: body?.length ?? null,
                 transferredBytes: res.transferredBytes,
                 totalTransferredBytes: res.totalTransferredBytes,
+                co2Mg,
+                // Only meaningful when the total includes the page's resources, which needs JS mode.
+                carbonRating: co2Mg !== null && options.renderJs ? carbonRating(co2Mg) : '',
                 hash: body ? createHash('md5').update(body).digest('hex') : '',
             };
             const blockedBy = detectBotProtection(status, headers, $);
@@ -308,6 +313,8 @@ function errorResult(request: Request, message: string): PageResult {
         sizeBytes: null,
         transferredBytes: null,
         totalTransferredBytes: null,
+        co2Mg: null,
+        carbonRating: '',
         hash: '',
         title: '',
         titleLength: 0,

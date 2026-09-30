@@ -8,6 +8,7 @@ import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { log } from 'crawlee';
 import type { CrawlOptions, PageResult } from '@shared/types';
+import { co2Milligrams } from '../../src/main/carbon';
 import { SiteCrawler } from '../../src/main/crawler';
 
 /*
@@ -254,6 +255,9 @@ describe('SiteCrawler (fast HTML mode)', () => {
             sizeBytes: Buffer.byteLength(WEIGHT_A_BODY),
             transferredBytes: WEIGHT_A_GZIP.length,
             totalTransferredBytes: WEIGHT_A_GZIP.length,
+            co2Mg: co2Milligrams(WEIGHT_A_GZIP.length),
+            // Not rated from the HTML alone.
+            carbonRating: '',
         });
         expect(WEIGHT_A_GZIP.length).toBeLessThan(Buffer.byteLength(WEIGHT_A_BODY) / 2);
     });
@@ -428,6 +432,8 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
         expect(a.transferredBytes).toBeGreaterThanOrEqual(WEIGHT_A_GZIP.length);
         expect(a.transferredBytes).toBeLessThan(WEIGHT_A_GZIP.length + 32);
         expect(a.totalTransferredBytes).toBe(a.transferredBytes! + resources);
+        expect(a.co2Mg).toBe(co2Milligrams(a.totalTransferredBytes!));
+        expect(a.carbonRating).toBe('A+');
 
         const b = byPath.get('/weight/b')!;
         expect(b.transferredBytes).toBeGreaterThanOrEqual(b.sizeBytes!);

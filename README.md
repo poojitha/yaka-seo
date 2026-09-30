@@ -299,6 +299,7 @@ ScreamingAI/
 │   │   ├── index.ts          # window, IPC handlers, batching, CSV save dialog
 │   │   ├── crawler.ts        # SiteCrawler: Cheerio/Playwright crawlers, queue, limits
 │   │   ├── extract.ts        # SEO field extraction + indexability rules
+│   │   ├── carbon.ts         # CO2 per page view and carbon rating (Sustainable Web Design Model v4)
 │   │   ├── csv.ts            # CSV serialisation (formula-safe)
 │   │   └── validate.ts       # checks CrawlOptions received over IPC
 │   ├── preload/
@@ -353,6 +354,8 @@ ScreamingAI/
 | `sizeBytes`, `hash` | Uncompressed size and MD5 of the response body. Equal hashes mean exact duplicates. In JS mode these are for the raw HTML, not the rendered DOM. |
 | `transferredBytes` | Response body bytes as received, before decompression (headers excluded). In JS mode this is what Chromium reports, which also counts chunked-encoding framing. |
 | `totalTransferredBytes` | JS mode: `transferredBytes` of the page plus every resource it loaded by the `load` event (CSS, JS, images, fonts…), with the browser cache off so each page counts what a first-time visitor downloads. Fast HTML mode fetches only the HTML, so this equals `transferredBytes`. |
+| `co2Mg` | Estimated CO2e per page view from `totalTransferredBytes`, using the Sustainable Web Design Model v4 for a first-time visitor on the global average grid: 0.3 kWh/GB × 494 g/kWh = 148.2 g per GB. Matches Screaming Frog's CO2 (mg) column. |
+| `carbonRating` | A+ to F from `co2Mg` (A+ ≤ 40 mg, A ≤ 79, B ≤ 145, C ≤ 209, D ≤ 278, E ≤ 359, else F). JS mode only; empty in fast HTML mode, where the total covers just the HTML. |
 | `title`, `titleLength` | `<title>` text and length |
 | `metaDescription`, `metaDescriptionLength` | Meta description and length |
 | `metaKeywords`, `metaKeywordsLength` | Meta keywords and length (ignored by Google) |

@@ -42,6 +42,13 @@ export interface PageResult {
      * measured with the browser cache off. In fast HTML mode only the HTML is fetched, so this equals `transferredBytes`.
      */
     totalTransferredBytes: number | null;
+    /** Estimated CO2e per page view from `totalTransferredBytes` (Sustainable Web Design Model v4). */
+    co2Mg: number | null;
+    /**
+     * A+ to F from `co2Mg`. JS mode only: in fast HTML mode the total covers just the HTML, so nearly every page
+     * would rate A+.
+     */
+    carbonRating: string;
     /** MD5 of the response body; equal hashes mean exact duplicate pages. */
     hash: string;
     title: string;

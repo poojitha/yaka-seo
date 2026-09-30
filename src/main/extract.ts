@@ -19,6 +19,8 @@ type ResponseFields =
     | 'sizeBytes'
     | 'transferredBytes'
     | 'totalTransferredBytes'
+    | 'co2Mg'
+    | 'carbonRating'
     | 'hash'
     | 'error';
 type SeoFields = Omit<PageResult, ResponseFields>;

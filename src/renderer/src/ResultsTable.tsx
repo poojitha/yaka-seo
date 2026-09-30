@@ -31,6 +31,8 @@ const COLUMNS: Column[] = [
     { key: 'sizeBytes', label: 'Size (B)', width: 80 },
     { key: 'transferredBytes', label: 'Transferred (B)', width: 110 },
     { key: 'totalTransferredBytes', label: 'Total transf. (B)', width: 120 },
+    { key: 'co2Mg', label: 'CO2 (mg)', width: 80 },
+    { key: 'carbonRating', label: 'Carbon', width: 65 },
     { key: 'canonical', label: 'Canonical', width: 280 },
     { key: 'metaRobots', label: 'Meta robots', width: 150 },
     { key: 'xRobotsTag', label: 'X-Robots-Tag', width: 150 },
