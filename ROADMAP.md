@@ -3,7 +3,6 @@
 Planned work for Yaka|SEO, roughly in priority order. For what the app can't do today, see [Known limitations](README.md#known-limitations) in the README.
 
 1. **Remaining Screaming Frog per-page fields.** The fields that come straight from the response and HTML are done (see "Data collected per URL" in the README). Still to do:
-   - **SERP pixel widths** for titles (truncated at about 580 px) and meta descriptions (about 920–990 px), using a per-character width table for Google's font.
    - **JS-only outlinks** (unique internal and external): compare the raw HTML with the rendered DOM in JS mode.
    - **Redirect chains:** each hop as its own row with its 3xx status, as Screaming Frog reports them. Today a redirect is one row with `finalUrl`.
 2. **Store crawls in SQLite** in the main process, with the UI fetching results a page at a time. Makes very large crawls possible and lets you save and reopen them.

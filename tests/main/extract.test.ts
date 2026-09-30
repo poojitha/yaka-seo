@@ -18,6 +18,15 @@ describe('extractSeo: on-page fields', () => {
         expect(r.titleLength).toBe(8);
         expect(r.metaDescription).toBe('Some description');
         expect(r.metaDescriptionLength).toBe(16);
+        expect(r.titlePixelWidth).toBeGreaterThan(0);
+        expect(r.metaDescriptionPixelWidth).toBeGreaterThan(0);
+    });
+
+    it('measures title and description pixel widths in their search-result font sizes', () => {
+        const r = extract('<head><title>Crawler Test Site</title><meta name="description" content="Default description XIbwNE7SSUJciq0/Jyty"></head>');
+        expect(r.titlePixelWidth).toBe(153);
+        expect(r.metaDescriptionPixelWidth).toBe(270);
+        expect(extract('<head></head>')).toMatchObject({ titlePixelWidth: 0, metaDescriptionPixelWidth: 0 });
     });
 
     it('returns empty strings when title and description are missing', () => {

@@ -53,8 +53,12 @@ export interface PageResult {
     hash: string;
     title: string;
     titleLength: number;
+    /** Width in Google's desktop results (Arial 20 px); titles over about 561 px get cut off. */
+    titlePixelWidth: number;
     metaDescription: string;
     metaDescriptionLength: number;
+    /** Width in Google's desktop results (Arial 14 px); descriptions over about 985 px get cut off. */
+    metaDescriptionPixelWidth: number;
     metaKeywords: string;
     metaKeywordsLength: number;
     h1: string;

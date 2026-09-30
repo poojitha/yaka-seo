@@ -1,5 +1,6 @@
 import type { CheerioRoot } from 'crawlee';
 import type { PageResult } from '@shared/types';
+import { DESCRIPTION_FONT_PX, pixelWidth, TITLE_FONT_PX } from './pixel-width';
 
 /** Fields that don't come from the HTML and headers; the crawler fills these in. */
 type ResponseFields =
@@ -92,8 +93,10 @@ export function extractSeo($: CheerioRoot, pageUrl: string, status: number | nul
             .join(', '),
         title,
         titleLength: title.length,
+        titlePixelWidth: pixelWidth(title, TITLE_FONT_PX),
         metaDescription,
         metaDescriptionLength: metaDescription.length,
+        metaDescriptionPixelWidth: pixelWidth(metaDescription, DESCRIPTION_FONT_PX),
         metaKeywords,
         metaKeywordsLength: metaKeywords.length,
         h1,
