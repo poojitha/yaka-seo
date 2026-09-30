@@ -6,7 +6,7 @@ import { DESCRIPTION_FONT_PX, pixelWidth, TITLE_FONT_PX } from './pixel-width';
 type ResponseFields =
     | 'url'
     | 'urlEncoded'
-    | 'finalUrl'
+    | 'redirectUrl'
     | 'redirectType'
     | 'status'
     | 'statusText'
@@ -38,22 +38,30 @@ const BLOCKS = 'address, article, aside, blockquote, br, dd, div, dl, dt, figcap
 /**
  * Pulls the on-page SEO fields out of a parsed HTML document and its response headers.
  * `headers` must have lower-case names; multiple `Set-Cookie` headers are joined with '\n'.
+ * `rawHtmlLength` is the length of the HTML as served; Text Ratio is measured against it, not the (possibly
+ * JavaScript-grown) parsed document.
  */
-export function extractSeo($: CheerioRoot, pageUrl: string, status: number | null, headers: Record<string, string>): SeoFields {
+export function extractSeo($: CheerioRoot, pageUrl: string, status: number | null, headers: Record<string, string>, rawHtmlLength?: number): SeoFields {
+    // Link elements only count in <head>, as for search engines: a canonical or rel=next in <body> is ignored.
     const href = (selector: string) => {
-        const h = $(selector).first().attr('href');
+        const h = $(`head ${selector}`).first().attr('href');
         return h ? resolveUrl(h, pageUrl) ?? h : '';
     };
 
     const title = clean($('head > title').first().text());
     const metaDescription = clean($('meta[name="description" i]').attr('content'));
     const metaKeywords = clean($('meta[name="keywords" i]').attr('content'));
-    const robotsTags = $('meta[name="robots" i]')
+    // Googlebot-specific directives apply to Google just like generic robots ones.
+    const robotsTags = $('meta[name="robots" i], meta[name="googlebot" i]')
         .map((_, el) => clean($(el).attr('content')).toLowerCase())
         .get();
     const xRobotsTag = headers['x-robots-tag'] ?? '';
-    const canonical = href('link[rel="canonical" i]');
     const linkHeader = headers['link'] ?? '';
+    // An HTML canonical wins; otherwise one sent as `Link: <url>; rel="canonical"`.
+    const canonical = href('link[rel="canonical" i]') || linkHeaderUrl(linkHeader, 'canonical', pageUrl);
+    const metaRefresh = clean($('meta[http-equiv="refresh" i]').attr('content'));
+    // A refresh (meta tag or HTTP header) to another URL is a redirect; one without a URL just reloads the page.
+    const refreshTo = refreshTarget(metaRefresh, pageUrl) || refreshTarget(headers['refresh'] ?? '', pageUrl);
 
     const h1s = $('h1');
     const h1 = clean(h1s.eq(0).text());
@@ -64,7 +72,7 @@ export function extractSeo($: CheerioRoot, pageUrl: string, status: number | nul
     const bodyText = clean(text);
     const words = bodyText ? bodyText.split(' ') : [];
     const sentenceCount = text.split(/[.!?]+(?=\s|$)|\p{Zp}/u).filter((s) => /[\p{L}\p{N}]/u.test(s)).length;
-    const html = $.html();
+    const htmlLength = rawHtmlLength ?? $.html().length;
 
     const links = linkTargets(
         $('a[href]')
@@ -75,7 +83,7 @@ export function extractSeo($: CheerioRoot, pageUrl: string, status: number | nul
 
     const imagesMissingAlt = $('img').filter((_, el) => !clean($(el).attr('alt'))).length;
 
-    const { indexable, indexabilityReason } = getIndexability(status, robotsTags.join(', '), xRobotsTag.toLowerCase(), canonical, pageUrl);
+    const { indexable, indexabilityReason } = getIndexability(status, robotsTags.join(', '), xRobotsTag.toLowerCase(), canonical, refreshTo, pageUrl);
     const flesch = fleschReadingEase(words, sentenceCount);
 
     return {
@@ -104,7 +112,7 @@ export function extractSeo($: CheerioRoot, pageUrl: string, status: number | nul
         metaRobots: robotsTags[0] ?? '',
         metaRobots2: robotsTags[1] ?? '',
         xRobotsTag,
-        metaRefresh: clean($('meta[http-equiv="refresh" i]').attr('content')),
+        metaRefresh,
         relNext: href('link[rel~="next" i]'),
         relPrev: href('link[rel~="prev" i]'),
         httpRelNext: linkHeaderUrl(linkHeader, 'next', pageUrl),
@@ -119,7 +127,7 @@ export function extractSeo($: CheerioRoot, pageUrl: string, status: number | nul
         avgWordsPerSentence: sentenceCount ? round(words.length / sentenceCount) : null,
         fleschReadingEase: flesch,
         readability: flesch === null ? '' : readabilityBand(flesch),
-        textRatio: html.length ? round((bodyText.length / html.length) * 100) : 0,
+        textRatio: htmlLength ? round((bodyText.length / htmlLength) * 100) : 0,
         internalLinks: links.internal.length,
         uniqueInternalLinks: new Set(links.internal).size,
         externalLinks: links.external.length,
@@ -163,7 +171,9 @@ function fleschReadingEase(words: string[], sentences: number): number | null {
     const counted = words.filter((w) => /[a-z]/i.test(w));
     if (counted.length === 0 || sentences === 0) return null;
     const syllables = counted.reduce((sum, w) => sum + countSyllables(w), 0);
-    return round(206.835 - 1.015 * (counted.length / sentences) - 84.6 * (syllables / counted.length));
+    const score = 206.835 - 1.015 * (counted.length / sentences) - 84.6 * (syllables / counted.length);
+    // The formula can leave 0-100 (one short word, or very long polysyllabic sentences); the scale is 0-100.
+    return round(Math.min(100, Math.max(0, score)));
 }
 
 /** Heuristic syllable count: vowel groups, ignoring a silent final e/es/ed. */
@@ -177,15 +187,15 @@ function countSyllables(word: string): number {
     return Math.max(1, groups?.length ?? 0);
 }
 
-// Same bands as Screaming Frog's Readability column.
+// Same bands and names as Screaming Frog's Readability column.
 function readabilityBand(score: number): string {
     if (score >= 90) return 'Very Easy';
     if (score >= 80) return 'Easy';
     if (score >= 70) return 'Fairly Easy';
     if (score >= 60) return 'Normal';
-    if (score >= 50) return 'Fairly Difficult';
-    if (score >= 30) return 'Difficult';
-    return 'Very Difficult';
+    if (score >= 50) return 'Fairly Hard';
+    if (score >= 30) return 'Hard';
+    return 'Very Hard';
 }
 
 /** First URL in an HTTP `Link` header whose rel includes `rel`, e.g. `<https://a/2>; rel="next"`. */
@@ -219,15 +229,30 @@ export function detectBotProtection(status: number | null, headers: Record<strin
     return null;
 }
 
-function getIndexability(status: number | null, metaRobots: string, xRobots: string, canonical: string, pageUrl: string) {
+function getIndexability(status: number | null, metaRobots: string, xRobots: string, canonical: string, refreshTo: string, pageUrl: string) {
+    const self = resolveUrl(pageUrl, pageUrl) ?? pageUrl;
+    if (status !== null && status >= 300 && status < 400) return { indexable: false, indexabilityReason: 'Redirected' };
     if (status !== null && (status < 200 || status >= 300)) return { indexable: false, indexabilityReason: `Status ${status}` };
     if (metaRobots.includes('noindex') || metaRobots.includes('none')) return { indexable: false, indexabilityReason: 'noindex (meta)' };
     if (xRobots.includes('noindex') || xRobots.includes('none')) return { indexable: false, indexabilityReason: 'noindex (X-Robots-Tag)' };
-    if (canonical && normalize(canonical) !== normalize(pageUrl)) return { indexable: false, indexabilityReason: 'Canonicalised' };
+    if (refreshTo && refreshTo !== self) return { indexable: false, indexabilityReason: 'Redirected' };
+    // Exact comparison, as search engines do: /page and /page/ are different URLs.
+    if (canonical && canonical !== self) return { indexable: false, indexabilityReason: 'Canonicalised' };
     return { indexable: true, indexabilityReason: '' };
 }
 
-function resolveUrl(href: string, base: string): string | null {
+/**
+ * Where a refresh directive (`<meta http-equiv="refresh">` content or a `Refresh` header) sends the browser:
+ * the absolute URL after `url=`, the page itself for a plain reload ('5'), or '' if there's no directive.
+ */
+export function refreshTarget(content: string, pageUrl: string): string {
+    if (!content.trim()) return '';
+    const url = /url\s*=\s*['"]?([^'"]*)/i.exec(content)?.[1].trim();
+    return resolveUrl(url || pageUrl, pageUrl) ?? '';
+}
+
+/** Absolute URL without #fragment, or null if `href` can't be parsed. */
+export function resolveUrl(href: string, base: string): string | null {
     try {
         const u = new URL(href, base);
         u.hash = '';
@@ -236,5 +261,3 @@ function resolveUrl(href: string, base: string): string | null {
         return null;
     }
 }
-
-const normalize = (u: string) => u.replace(/\/+$/, '');

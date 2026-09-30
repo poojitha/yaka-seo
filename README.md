@@ -348,15 +348,14 @@ ScreamingAI/
 | Field | Description |
 |---|---|
 | `url`, `urlEncoded` | Requested URL, and its percent-encoded form |
-| `finalUrl` | URL after redirects (only set if different) |
-| `redirectType` | `HTTP Redirect` or `JavaScript Redirect` when `finalUrl` is set, `Meta Refresh` when the page has a meta refresh with a URL |
+| `redirectUrl`, `redirectType` | Where the URL redirects to, and how: `HTTP Redirect` (a 3xx, reported as its own row with no page content), `HTTP Refresh Redirect` (`Refresh` header), `Meta Refresh Redirect` or `JavaScript Redirect` (JS mode). As in Screaming Frog, this is the next hop: each hop of a chain, and the final page, are crawled as their own rows. A redirect loop is reported as a redirect to itself (JS mode: an error, since the browser refuses to load it). |
 | `status`, `statusText` | HTTP status code (`null` if the request failed) and its standard reason phrase (`Not Found`) |
 | `contentType` | `Content-Type` response header |
 | `httpVersion` | Protocol version: `1.1`, `2` or `3` |
 | `lastModified` | `Last-Modified` response header |
 | `cookies` | Names of cookies set by `Set-Cookie` headers |
 | `depth` | Clicks from the start URL |
-| `folderDepth` | Non-empty path segments (`/` is 0, `/blog/post` is 2) |
+| `folderDepth` | Directories in the path, as in Screaming Frog: `/` and `/page` are 0, `/blog/post` is 1, `/blog/post/` is 2 |
 | `responseTimeMs` | Time from navigation start to handler (includes rendering in JS mode) |
 | `crawlTimestamp` | When the page was processed (ISO 8601) |
 | `sizeBytes`, `hash` | Uncompressed size and MD5 of the response body. Equal hashes mean exact duplicates. In JS mode these are for the raw HTML, not the rendered DOM. |
@@ -371,19 +370,19 @@ ScreamingAI/
 | `metaKeywords`, `metaKeywordsLength` | Meta keywords and length (ignored by Google) |
 | `h1`, `h1Length`, `h1Second`, `h1SecondLength`, `h1Count` | First and second H1 text and lengths, H1 count |
 | `h2`, `h2Length`, `h2Count` | First H2 text and length, H2 count |
-| `canonical` | Absolute canonical URL |
-| `metaRobots`, `metaRobots2` | First and second meta robots tags (lower-cased) |
+| `canonical` | Absolute canonical URL from `<link rel="canonical">` in `<head>` (one in `<body>` is ignored), or else from an HTTP `Link: <url>; rel="canonical"` header. Compared exactly: `/page` and `/page/` are different URLs. |
+| `metaRobots`, `metaRobots2` | First and second `<meta name="robots">` or `<meta name="googlebot">` tags (lower-cased) |
 | `xRobotsTag` | `X-Robots-Tag` response header |
 | `metaRefresh` | `content` of `<meta http-equiv="refresh">` |
-| `relNext`, `relPrev` | Pagination links from `<link rel="next/prev">` |
+| `relNext`, `relPrev` | Pagination links from `<link rel="next/prev">` in `<head>` (as are `amphtml` and `mobileAlternate`) |
 | `httpRelNext`, `httpRelPrev` | Pagination links from the HTTP `Link` header |
 | `amphtml`, `mobileAlternate` | `<link rel="amphtml">` and `<link rel="alternate" media="...">` URLs |
 | `language` | `<html lang>` |
-| `indexable`, `indexabilityReason` | `false` with a reason for non-2xx status, `noindex` (either meta robots tag, or X-Robots-Tag), or a canonical pointing elsewhere |
+| `indexable`, `indexabilityReason` | `false` with a reason: `Redirected` (3xx, or a refresh or JavaScript redirect to another URL), `Status 404` and other non-2xx statuses, `noindex (meta)` (robots or googlebot tag), `noindex (X-Robots-Tag)`, or `Canonicalised` |
 | `wordCount` | Words in body text (scripts and styles excluded) |
 | `sentenceCount`, `avgWordsPerSentence` | Sentences end at `.`, `!`, `?` and at block elements such as headings, list items and cells |
-| `fleschReadingEase`, `readability` | Flesch reading ease (English formula, higher is easier) and its band: Very Easy, Easy, Fairly Easy, Normal, Fairly Difficult, Difficult, Very Difficult |
-| `textRatio` | Visible text characters as a percentage of HTML characters |
+| `fleschReadingEase`, `readability` | Flesch reading ease (English formula, higher is easier) capped to 0-100, and its band: Very Easy, Easy, Fairly Easy, Normal, Fairly Hard, Hard, Very Hard (Screaming Frog's names) |
+| `textRatio` | Visible text characters as a percentage of the HTML as served (not the rendered page, which JavaScript can grow). Matches Screaming Frog. |
 | `internalLinks`, `uniqueInternalLinks` | Links to the same hostname: all, and distinct URLs |
 | `externalLinks`, `uniqueExternalLinks` | Links to other hostnames: all, and distinct URLs |
 | `uniqueJsOutlinks`, `uniqueExternalJsOutlinks` | Distinct internal/external link targets in the rendered page that aren't in the HTML as served (JS mode; the served HTML is parsed with the browser's `DOMParser`). Always 0 in fast HTML mode. |

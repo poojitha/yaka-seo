@@ -32,10 +32,10 @@ describe('toCsv', () => {
     });
 
     it('writes null as empty and booleans/numbers as text', () => {
-        const csv = toCsv([makeResult({ finalUrl: null, status: null, indexable: false, wordCount: 42, error: null })]);
+        const csv = toCsv([makeResult({ redirectUrl: null, status: null, indexable: false, wordCount: 42, error: null })]);
         const [header, row] = csv.slice(1).split('\r\n');
         const cells = Object.fromEntries(header.split(',').map((h, i) => [h, row.split(',')[i]]));
-        expect(cells.finalUrl).toBe('');
+        expect(cells.redirectUrl).toBe('');
         expect(cells.status).toBe('');
         expect(cells.indexable).toBe('false');
         expect(cells.wordCount).toBe('42');

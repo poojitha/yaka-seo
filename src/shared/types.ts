@@ -13,9 +13,12 @@ export interface PageResult {
     url: string;
     /** Percent-encoded form of `url`. */
     urlEncoded: string;
-    /** Final URL after redirects, if different from `url`. */
-    finalUrl: string | null;
-    /** 'HTTP Redirect' or 'JavaScript Redirect' when `finalUrl` is set, 'Meta Refresh' when the page asks to redirect, else ''. */
+    /**
+     * Where this URL redirects to (the next hop, not the end of a chain), or null. Each hop is crawled as its own
+     * row, as in Screaming Frog.
+     */
+    redirectUrl: string | null;
+    /** 'HTTP Redirect', 'HTTP Refresh Redirect', 'Meta Refresh Redirect' or 'JavaScript Redirect' when `redirectUrl` is set, else ''. */
     redirectType: string;
     status: number | null;
     /** Standard reason phrase for `status`, e.g. 'Not Found'. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectBotProtection, extractSeo } from '../../src/main/extract';
+import { detectBotProtection, extractSeo, refreshTarget } from '../../src/main/extract';
 import { loadHtml } from './test-utils';
 
 const PAGE = 'https://example.com/blog/post';
@@ -92,6 +92,26 @@ describe('extractSeo: on-page fields', () => {
         expect(r.canonical).toBe('https://example.com/blog/post');
     });
 
+    it('ignores link elements outside <head>, as search engines do', () => {
+        const r = extract(`<html><head><title>T</title></head><body>
+            <link rel="canonical" href="https://example.com/other">
+            <link rel="next" href="/page/2">
+        </body></html>`);
+        expect(r).toMatchObject({ canonical: '', relNext: '', indexable: true });
+    });
+
+    it('reads a canonical from the HTTP Link header when the HTML has none', () => {
+        const headers = { link: '<https://example.com/other>; rel="canonical"' };
+        expect(extract('<body></body>', { headers })).toMatchObject({ canonical: 'https://example.com/other', indexabilityReason: 'Canonicalised' });
+        const both = extract(`<head><link rel="canonical" href="${PAGE}"></head>`, { headers });
+        expect(both).toMatchObject({ canonical: PAGE, indexable: true });
+    });
+
+    it('reads googlebot meta directives along with robots ones', () => {
+        const r = extract('<head><meta name="googlebot" content="noindex, nofollow"></head>');
+        expect(r).toMatchObject({ metaRobots: 'noindex, nofollow', indexable: false, indexabilityReason: 'noindex (meta)' });
+    });
+
     it('lower-cases meta robots', () => {
         expect(extract('<head><meta name="ROBOTS" content="NoFollow, NoArchive"></head>').metaRobots).toBe('nofollow, noarchive');
     });
@@ -180,7 +200,13 @@ describe('extractSeo: readability', () => {
         expect(easy.fleschReadingEase!).toBeGreaterThan(90);
         expect(easy.readability).toBe('Very Easy');
         expect(hard.fleschReadingEase!).toBeLessThan(30);
-        expect(hard.readability).toBe('Very Difficult');
+        expect(hard.readability).toBe('Very Hard');
+    });
+
+    it('keeps the score within 0-100, like Screaming Frog', () => {
+        // One short word scores above 100 by the formula; one long polysyllabic word far below 0.
+        expect(extract('<body><p>Hi.</p></body>').fleschReadingEase).toBe(100);
+        expect(extract('<body><p>Incomprehensibilities.</p></body>')).toMatchObject({ fleschReadingEase: 0, readability: 'Very Hard' });
     });
 
     it('has no readability score for a page without text', () => {
@@ -193,6 +219,26 @@ describe('extractSeo: readability', () => {
         expect(r.textRatio).toBeLessThan(10);
         expect(extract('<body></body>').textRatio).toBe(0);
     });
+
+    it('measures the text ratio against the HTML as served when given, not the parsed (possibly JS-grown) page', () => {
+        // Screaming Frog: 75 visible characters in a 1776-byte page is 4.223%.
+        const text = 'Crawler Test two point oh! Page Without Canonical Tags 0mCrnQNLh2sd2NS4PKC9';
+        expect(text).toHaveLength(75);
+        const r = extractSeo(loadHtml(`<body><p>${text}</p></body>`), PAGE, 200, {}, 1776);
+        expect(r.textRatio).toBe(4.223);
+    });
+});
+
+describe('refreshTarget', () => {
+    it.each([
+        ['0; url=/next', `https://example.com/next`],
+        ["5;URL='https://other.example/x'", 'https://other.example/x'],
+        ['0; url = page2#frag', 'https://example.com/blog/page2'],
+        ['30', PAGE],
+        ['', ''],
+    ])('%j -> %j', (content, target) => {
+        expect(refreshTarget(content, PAGE)).toBe(target);
+    });
 });
 
 describe('extractSeo: indexability', () => {
@@ -201,14 +247,19 @@ describe('extractSeo: indexability', () => {
         { name: 'unknown status (null) is not penalised', status: null, indexable: true, reason: '' },
         { name: '404', status: 404, indexable: false, reason: 'Status 404' },
         { name: '500', status: 500, indexable: false, reason: 'Status 500' },
-        { name: '301', status: 301, indexable: false, reason: 'Status 301' },
+        { name: '301', status: 301, indexable: false, reason: 'Redirected' },
         { name: 'meta noindex', html: '<meta name="robots" content="noindex, follow">', indexable: false, reason: 'noindex (meta)' },
         { name: 'meta none', html: '<meta name="robots" content="none">', indexable: false, reason: 'noindex (meta)' },
         { name: 'X-Robots-Tag noindex', xRobots: 'NOINDEX', indexable: false, reason: 'noindex (X-Robots-Tag)' },
         { name: 'X-Robots-Tag none', xRobots: 'none', indexable: false, reason: 'noindex (X-Robots-Tag)' },
         { name: 'canonical to another URL', html: '<link rel="canonical" href="https://example.com/other">', indexable: false, reason: 'Canonicalised' },
         { name: 'self-referencing canonical', html: `<link rel="canonical" href="${PAGE}">`, indexable: true, reason: '' },
-        { name: 'canonical differing only by trailing slash', html: `<link rel="canonical" href="${PAGE}/">`, indexable: true, reason: '' },
+        // Search engines treat /page and /page/ as different URLs, as does Screaming Frog.
+        { name: 'canonical differing only by trailing slash', html: `<link rel="canonical" href="${PAGE}/">`, indexable: false, reason: 'Canonicalised' },
+        { name: 'self-referencing canonical on a URL with a #fragment', html: `<link rel="canonical" href="${PAGE}">`, url: `${PAGE}#top`, indexable: true, reason: '' },
+        { name: 'googlebot meta noindex', html: '<meta name="googlebot" content="noindex">', indexable: false, reason: 'noindex (meta)' },
+        { name: 'meta refresh to another URL', html: '<meta http-equiv="refresh" content="0; url=/elsewhere">', indexable: false, reason: 'Redirected' },
+        { name: 'meta refresh that only reloads the page', html: '<meta http-equiv="refresh" content="30">', indexable: true, reason: '' },
         {
             name: 'status is checked before noindex',
             status: 404,

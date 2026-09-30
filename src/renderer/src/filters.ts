@@ -6,7 +6,7 @@ const isHtml = (r: PageResult) => r.error === null && (r.contentType ?? '').incl
 export const FILTERS: { id: string; label: string; test: (r: PageResult) => boolean }[] = [
     { id: 'all', label: 'All', test: () => true },
     { id: 'errors', label: '4xx / 5xx / Failed', test: (r) => r.error !== null || (r.status ?? 0) >= 400 },
-    { id: 'redirects', label: 'Redirected', test: (r) => r.finalUrl !== null },
+    { id: 'redirects', label: 'Redirected', test: (r) => r.redirectUrl !== null },
     { id: 'noindex', label: 'Non-indexable', test: (r) => !r.indexable },
     { id: 'title-missing', label: 'Title missing', test: (r) => isHtml(r) && r.titleLength === 0 },
     { id: 'title-long', label: 'Title > 60 chars', test: (r) => r.titleLength > 60 },

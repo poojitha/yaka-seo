@@ -5,7 +5,7 @@ export function makeResult(overrides: Partial<PageResult> = {}): PageResult {
     return {
         url: 'https://example.com/',
         urlEncoded: 'https://example.com/',
-        finalUrl: null,
+        redirectUrl: null,
         redirectType: '',
         status: 200,
         statusText: 'OK',

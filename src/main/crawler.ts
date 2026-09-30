@@ -5,7 +5,7 @@ import type { Page, Request as BrowserRequest } from 'playwright';
 import type { CrawlAnalysis, CrawlOptions, PageResult, PostCrawlFields } from '@shared/types';
 import { analyseCrawl, minhashSignature, type CrawledPage } from './analysis';
 import { carbonRating, co2Milligrams } from './carbon';
-import { contentText, detectBotProtection, extractSeo, linkTargets } from './extract';
+import { contentText, detectBotProtection, extractSeo, linkTargets, refreshTarget, resolveUrl } from './extract';
 
 // Report 4xx/5xx pages as results instead of letting Crawlee treat them as failures and retry.
 const HTTP_ERROR_CODES = Array.from({ length: 200 }, (_, i) => 400 + i);
@@ -22,10 +22,28 @@ interface PageResponse {
     body: Buffer | null;
     transferredBytes: number | null;
     totalTransferredBytes: number | null;
-    /** Whether a redirect to `request.loadedUrl` was an HTTP 3xx (otherwise it was JavaScript). */
-    redirectedByHttp: boolean;
+    /** The requested URL's own 3xx response, if the fetch followed HTTP redirects to get here. */
+    redirect: RedirectHop | null;
+    /** Browser mode: a navigation away from the loaded page (JavaScript, meta refresh) that was blocked, or null. */
+    blockedNavigation: string | null;
     /** `<a href>` values in the HTML as served, before JavaScript ran. null in fast HTML mode, where nothing runs. */
     rawHrefs: string[] | null;
+}
+
+/** One HTTP redirect: the status and headers of the 3xx response, and where it pointed. */
+interface RedirectHop {
+    status: number;
+    /** Lower-case names. */
+    headers: Record<string, string>;
+    location: string;
+}
+
+/** What the fast HTML mode's got hooks record about a request while it's in flight. */
+interface RequestTrace {
+    /** Raw (still compressed) body bytes of the final response; null if it wasn't compressed. */
+    bytes: number | null;
+    /** The first redirect of the request, i.e. the requested URL's own response. */
+    redirect: RedirectHop | null;
 }
 
 /** Rows are sent before the crawl ends, when the post-crawl fields aren't known yet. */
@@ -94,6 +112,9 @@ export class SiteCrawler {
             onPage(row);
         };
 
+        /** Fast HTML mode: per-request state filled in by got hooks. */
+        const traces = new WeakMap<Request, RequestTrace>();
+
         const shared = {
             requestQueue,
             maxRequestsPerCrawl: options.maxPages,
@@ -108,17 +129,31 @@ export class SiteCrawler {
                 },
             ],
             failedRequestHandler: ({ request }: { request: Request }, error: Error) => {
-                report(errorResult(request, error.message));
+                // A redirect loop fails after too many hops, but the URL itself still answered with a redirect.
+                const hop = traces.get(request)?.redirect;
+                report(hop ? redirectResult(request, hop) : errorResult(request, error.message));
             },
         };
 
-        const handlePage = async (
-            request: Request,
-            res: PageResponse,
-            $: CheerioRoot,
-            enqueueLinks: (opts: { strategy: 'same-hostname' }) => Promise<unknown>,
-        ) => {
+        type EnqueueLinks = (opts: { strategy: 'same-hostname' | 'all'; urls?: string[] }) => Promise<unknown>;
+        /** Queues a redirect target, if it's on the crawl's hostname (checked here, since Crawlee compares against the loaded URL). */
+        const enqueueTarget = async (request: Request, target: string, enqueueLinks: EnqueueLinks) => {
+            if (new URL(target).hostname === new URL(request.url).hostname) await enqueueLinks({ urls: [target], strategy: 'all' });
+        };
+
+        const handlePage = async (request: Request, res: PageResponse, $: CheerioRoot, enqueueLinks: EnqueueLinks) => {
             const { status, headers, body } = res;
+            // An HTTP redirect is its own row, and only its next hop is queued: the page it leads to is reported as
+            // that hop's row, as in Screaming Frog. Also covers a 3xx the client didn't follow (300, 305).
+            const hop =
+                res.redirect ??
+                (status !== null && status >= 300 && status < 400 && headers['location'] ? { status, headers, location: headers['location'] } : null);
+            if (hop) {
+                const row = redirectResult(request, hop, HTTP_VERSIONS[res.httpVersion.toLowerCase()] ?? res.httpVersion);
+                report(row);
+                if (row.redirectUrl) await enqueueTarget(request, row.redirectUrl, enqueueLinks);
+                return;
+            }
             const co2Mg = res.totalTransferredBytes === null ? null : co2Milligrams(res.totalTransferredBytes);
             const response = {
                 status,
@@ -144,16 +179,22 @@ export class SiteCrawler {
                 });
                 return;
             }
-            const pageUrl = request.loadedUrl ?? request.url;
+            const pageUrl = resolveUrl(request.loadedUrl ?? request.url, request.url) ?? request.url;
             const base = baseResult(request);
-            const seo = extractSeo($, pageUrl, status, headers);
-            const redirectType = base.finalUrl
-                ? res.redirectedByHttp
-                    ? 'HTTP Redirect'
-                    : 'JavaScript Redirect'
-                : /url\s*=/i.test(seo.metaRefresh)
-                  ? 'Meta Refresh'
-                  : '';
+            const seo = extractSeo($, pageUrl, status, headers, body?.toString('utf8').length);
+            // Pages that send the browser elsewhere after loading. A refresh without a URL just reloads the page.
+            const refreshHeader = refreshTarget(headers['refresh'] ?? '', pageUrl);
+            const metaRefresh = refreshTarget(seo.metaRefresh, pageUrl);
+            const [redirectType, redirectUrl] = refreshHeader
+                ? ['HTTP Refresh Redirect', refreshHeader]
+                : metaRefresh
+                  ? ['Meta Refresh Redirect', metaRefresh]
+                  : res.blockedNavigation
+                    ? ['JavaScript Redirect', res.blockedNavigation]
+                    : ['', null];
+            const redirectsAway = redirectUrl !== null && redirectUrl !== pageUrl;
+            // extractSeo() already treats a refresh elsewhere as a redirect; a JavaScript one is only known here.
+            if (redirectsAway && seo.indexable) Object.assign(seo, { indexable: false, indexabilityReason: 'Redirected' });
 
             const links = linkTargets(
                 $('a[href]')
@@ -170,6 +211,7 @@ export class SiteCrawler {
             report(
                 {
                     ...base,
+                    redirectUrl,
                     redirectType,
                     ...response,
                     ...seo,
@@ -188,12 +230,17 @@ export class SiteCrawler {
                 },
             );
             if (followed) await enqueueLinks({ strategy: 'same-hostname' });
+            if (redirectsAway) await enqueueTarget(request, redirectUrl!, enqueueLinks);
         };
 
         const { userAgent } = options;
         if (options.renderJs) {
             /** Every request each page has finished loading, for Total Transferred. */
             const finishedRequests = new WeakMap<Page, BrowserRequest[]>();
+            /** Where each page tried to navigate after loading (meta refresh, JavaScript), for its redirect. */
+            const blockedNavigations = new WeakMap<Page, string>();
+            /** Resolves when a page's navigation away is blocked; see the post-navigation hook. */
+            const navigationBlocked = new WeakMap<Page, Promise<void>>();
             this.crawler = new PlaywrightCrawler(
                 {
                     ...shared,
@@ -202,7 +249,11 @@ export class SiteCrawler {
                     ...(userAgent && { browserPoolOptions: { useFingerprints: false }, launchContext: { userAgent } }),
                     preNavigationHooks: [
                         ...shared.preNavigationHooks,
-                        async ({ page }) => {
+                        async ({ page }, gotoOptions) => {
+                            // goto() returns at commit; the post-navigation hook then waits for load (see there).
+                            if (gotoOptions) gotoOptions.waitUntil = 'commit';
+                            let onBlocked!: () => void;
+                            navigationBlocked.set(page, new Promise<void>((resolve) => (onBlocked = resolve)));
                             const finished: BrowserRequest[] = [];
                             page.on('requestfinished', (r) => finished.push(r));
                             finishedRequests.set(page, finished);
@@ -212,6 +263,33 @@ export class SiteCrawler {
                             const cdp = await page.context().newCDPSession(page);
                             await cdp.send('Network.enable').catch(() => {});
                             await cdp.send('Network.setCacheDisabled', { cacheDisabled: true }).catch(() => {});
+                            // Keep the page on the URL being crawled. A meta refresh or JavaScript redirect would
+                            // otherwise replace it mid-extraction ("Execution context was destroyed"). The attempt is
+                            // recorded as the page's redirect instead, and its target crawled separately.
+                            // HTTP redirect hops (redirectedFrom set) are part of the first navigation and pass.
+                            let navigated = false;
+                            await page.route('**/*', (route) => {
+                                const req = route.request();
+                                if (req.isNavigationRequest() && req.frame() === page.mainFrame() && !req.redirectedFrom()) {
+                                    if (navigated) {
+                                        if (!blockedNavigations.has(page)) blockedNavigations.set(page, req.url());
+                                        onBlocked();
+                                        // 'aborted', not the default 'failed': a failed navigation loads Chromium's
+                                        // error page (replacing ours anyway), a cancelled one leaves the page as is.
+                                        return route.abort('aborted');
+                                    }
+                                    navigated = true;
+                                }
+                                return route.continue();
+                            });
+                        },
+                    ],
+                    postNavigationHooks: [
+                        async ({ page }) => {
+                            // Normally this is the load event, as goto() would wait for. But a script that
+                            // navigates while the page is still loading (inline location.replace()) stops the
+                            // parser: once that navigation is blocked, load never fires, so stop waiting then.
+                            await Promise.race([page.waitForLoadState('load'), navigationBlocked.get(page)]);
                         },
                     ],
                     async requestHandler({ request, response, page, parseWithCheerio, enqueueLinks }) {
@@ -246,7 +324,8 @@ export class SiteCrawler {
                             body,
                             transferredBytes: response ? await bodySize(response.request()) : null,
                             totalTransferredBytes: resourceSizes.reduce((a, b) => a + b, 0),
-                            redirectedByHttp: !!response?.request().redirectedFrom(),
+                            redirect: response ? await firstRedirect(response.request()) : null,
+                            blockedNavigation: blockedNavigations.get(page) ?? null,
                             rawHrefs,
                         };
                         await handlePage(request, pageResponse, $, enqueueLinks);
@@ -255,7 +334,6 @@ export class SiteCrawler {
                 config,
             );
         } else {
-            const rawBodyBytes = new WeakMap<Request, ByteCounter>();
             this.crawler = new CheerioCrawler(
                 {
                     ...shared,
@@ -264,10 +342,16 @@ export class SiteCrawler {
                         ...shared.preNavigationHooks,
                         ({ request }, gotOptions) => {
                             if (userAgent) gotOptions.headers = { ...gotOptions.headers, 'user-agent': userAgent };
-                            const counter: ByteCounter = { bytes: null };
-                            rawBodyBytes.set(request, counter);
-                            const hook = countRawBodyBytes(counter) as unknown as NonNullable<NonNullable<typeof gotOptions.hooks>['beforeRequest']>[number];
-                            gotOptions.hooks = { ...gotOptions.hooks, beforeRequest: [...(gotOptions.hooks?.beforeRequest ?? []), hook] };
+                            const trace: RequestTrace = { bytes: null, redirect: null };
+                            traces.set(request, trace);
+                            type Hooks = NonNullable<typeof gotOptions.hooks>;
+                            const countBytes = countRawBodyBytes(trace) as unknown as NonNullable<Hooks['beforeRequest']>[number];
+                            const recordRedirect = recordFirstRedirect(trace) as unknown as NonNullable<Hooks['beforeRedirect']>[number];
+                            gotOptions.hooks = {
+                                ...gotOptions.hooks,
+                                beforeRequest: [...(gotOptions.hooks?.beforeRequest ?? []), countBytes],
+                                beforeRedirect: [...(gotOptions.hooks?.beforeRedirect ?? []), recordRedirect],
+                            };
                         },
                     ],
                     async requestHandler({ request, response, body, $, enqueueLinks }) {
@@ -280,7 +364,7 @@ export class SiteCrawler {
                         );
                         const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
                         // Uncompressed responses aren't counted: the body as received is the body.
-                        const transferred = rawBodyBytes.get(request)?.bytes ?? buffer.length;
+                        const transferred = traces.get(request)?.bytes ?? buffer.length;
                         const pageResponse: PageResponse = {
                             status: response.statusCode ?? null,
                             headers,
@@ -289,8 +373,8 @@ export class SiteCrawler {
                             transferredBytes: transferred,
                             // Only the HTML is fetched in this mode.
                             totalTransferredBytes: transferred,
-                            // No JavaScript runs in this mode, so any redirect was HTTP.
-                            redirectedByHttp: true,
+                            redirect: traces.get(request)?.redirect ?? null,
+                            blockedNavigation: null,
                             rawHrefs: null,
                         };
                         await handlePage(request, pageResponse, $, enqueueLinks);
@@ -328,24 +412,61 @@ export class SiteCrawler {
 
 function baseResult(request: Request) {
     const startedAt = request.userData.startedAt as number | undefined;
-    const loaded = request.loadedUrl;
+    // A #fragment is never sent to the server, so the page is the same URL without it.
     const url = new URL(request.url);
+    url.hash = '';
     return {
-        url: request.url,
+        url: url.href,
         urlEncoded: url.href,
-        finalUrl: loaded && loaded !== request.url ? loaded : null,
         depth: request.crawlDepth,
-        folderDepth: url.pathname.split('/').filter(Boolean).length,
+        // Directories only, as in Screaming Frog: '/a/b/' is 2, '/a/b' is 1 ('b' is the page).
+        folderDepth: url.pathname.split('/').slice(1, -1).filter(Boolean).length,
         responseTimeMs: startedAt ? Date.now() - startedAt : null,
         crawlTimestamp: new Date().toISOString(),
     };
 }
 
+/** The row for a URL that answered with an HTTP redirect: status, headers and where it points, no page content. */
+function redirectResult(request: Request, hop: RedirectHop, httpVersion = ''): PageResult {
+    return {
+        ...errorResult(request, ''),
+        redirectUrl: resolveUrl(hop.location, request.url),
+        redirectType: 'HTTP Redirect',
+        status: hop.status,
+        statusText: STATUS_CODES[hop.status] ?? '',
+        contentType: hop.headers['content-type'] ?? null,
+        httpVersion,
+        lastModified: hop.headers['last-modified'] ?? '',
+        indexabilityReason: 'Redirected',
+        error: null,
+    };
+}
+
+/** Browser mode: the first request's 3xx response, if the navigation followed HTTP redirects to `final`. */
+async function firstRedirect(final: BrowserRequest): Promise<RedirectHop | null> {
+    let first = final;
+    while (first.redirectedFrom()) first = first.redirectedFrom()!;
+    if (first === final) return null;
+    const response = await first.response().catch(() => null);
+    if (!response) return null;
+    return {
+        status: response.status(),
+        headers: (await response.allHeaders().catch(() => null)) ?? response.headers(),
+        location: first.redirectedTo()?.url() ?? response.headers()['location'] ?? '',
+    };
+}
+
+/** got `beforeRedirect` hook (fast HTML mode) that records the first redirect: the requested URL's own response. */
+function recordFirstRedirect(trace: RequestTrace) {
+    return (options: { url?: URL | string }, response: { statusCode: number; headers: Record<string, string | string[] | undefined> }) => {
+        if (trace.redirect) return;
+        const headers = Object.fromEntries(Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), Array.isArray(v) ? v.join(',') : (v ?? '')]));
+        trace.redirect = { status: response.statusCode, headers, location: String(options.url ?? headers['location'] ?? '') };
+    };
+}
+
 type RequestFunction = (...args: unknown[]) => unknown;
 type ClientRequestLike = NodeJS.EventEmitter & { res?: NodeJS.EventEmitter | null };
-
-/** Raw (still compressed) body bytes of the final response; null if it wasn't compressed. */
-type ByteCounter = { bytes: number | null };
 
 /**
  * got `beforeRequest` hook that counts a response's body bytes as received, before decompression (fast HTML mode).
@@ -355,7 +476,7 @@ type ByteCounter = { bytes: number | null };
  * alone: got reads those in paused mode, and a data listener would take the data from it.
  * Runs after got-scraping's own hooks, so it wraps the request function that is actually used (HTTP/1.1 or HTTP/2).
  */
-function countRawBodyBytes(counter: ByteCounter) {
+function countRawBodyBytes(counter: RequestTrace) {
     return (options: { request?: RequestFunction; getRequestFunction(): RequestFunction | undefined }) => {
         const original = options.getRequestFunction();
         if (!original) return;
@@ -383,6 +504,7 @@ function countRawBodyBytes(counter: ByteCounter) {
 function errorResult(request: Request, message: string): PageResult {
     return {
         ...baseResult(request),
+        redirectUrl: null,
         redirectType: '',
         status: null,
         statusText: '',

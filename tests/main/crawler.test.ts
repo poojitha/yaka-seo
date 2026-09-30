@@ -27,6 +27,8 @@ import { SiteCrawler } from '../../src/main/crawler';
  * Unlinked: /slow (concurrency), /spa (JavaScript), /blocked and /challenge (bot protection),
  * /docs/guide/page (response headers, size and hash), /weight/a ─ /weight/b (transferred bytes),
  * /dup ─ /dup/1, /dup/2 (near duplicates of each other), /dup/3 (different text), /dup/noindex (copy of /dup/1).
+ * Redirects: /chain 302 -> /redirect 301 -> /c, /loop 302 -> itself, /meta-refresh and /refresh-header (-> /c),
+ * /js-redirect (location.replace -> /c), /push-state (history.pushState, not a redirect).
  */
 const html = (body: string, head = '') => `<!doctype html><html><head>${head}</head><body>${body}</body></html>`;
 const links = (...paths: string[]) => paths.map((p) => `<a href="${p}">${p}</a>`).join('\n');
@@ -83,6 +85,18 @@ const routes: Record<string, Route> = {
         res.end();
     },
     '/c': page('<p>redirect target</p>', '<title>C</title>'),
+    '/chain': (_req, res) => {
+        res.writeHead(302, { location: '/redirect' });
+        res.end();
+    },
+    '/loop': (_req, res) => {
+        res.writeHead(302, { location: '/loop' });
+        res.end();
+    },
+    '/meta-refresh': page('<p>moving</p>', '<title>Moving</title><meta http-equiv="refresh" content="0; url=/c">'),
+    '/refresh-header': page('<p>moving</p>', '<title>Refresh header</title>', 200, { refresh: '0; url=/c' }),
+    '/js-redirect': page('<p>moving</p><script>location.replace("/c")</script>', '<title>JS redirect</title>'),
+    '/push-state': page('<p>stays</p><script>history.pushState({}, "", "/pushed")</script>', '<title>Push state</title>'),
     '/broken': (req) => {
         req.socket.destroy();
     },
@@ -192,7 +206,7 @@ async function crawl(path: string, options: Partial<CrawlOptions> = {}, crawler 
 describe('SiteCrawler (fast HTML mode)', () => {
     it('crawls every in-scope page and reports each exactly once', async () => {
         const { rows, paths } = await crawl('/');
-        expect(paths).toEqual(['/', '/a', '/a/deep', '/a/deep/deeper', '/b', '/broken', '/missing', '/redirect', '/xrobots']);
+        expect(paths).toEqual(['/', '/a', '/a/deep', '/a/deep/deeper', '/b', '/broken', '/c', '/missing', '/redirect', '/xrobots']);
         expect(rows).toHaveLength(paths.length);
     });
 
@@ -206,7 +220,7 @@ describe('SiteCrawler (fast HTML mode)', () => {
             title: 'Home',
             metaDescription: 'Home page',
             indexable: true,
-            finalUrl: null,
+            redirectUrl: null,
             error: null,
             // localhost counts as external: a different hostname from 127.0.0.1.
             internalLinks: 7,
@@ -237,10 +251,49 @@ describe('SiteCrawler (fast HTML mode)', () => {
         expect(requested.filter((p) => p === '/missing')).toHaveLength(1);
     });
 
-    it('follows redirects and records the final URL', async () => {
+    it('reports a redirect as its own 3xx row and crawls the target as a separate row', async () => {
         const { byPath } = await crawl('/');
-        expect(byPath.get('/redirect')).toMatchObject({ status: 200, finalUrl: `${origin}/c`, title: 'C', redirectType: 'HTTP Redirect' });
-        expect(byPath.get('/a')!.redirectType).toBe('');
+        expect(byPath.get('/redirect')).toMatchObject({
+            status: 301,
+            statusText: 'Moved Permanently',
+            redirectUrl: `${origin}/c`,
+            redirectType: 'HTTP Redirect',
+            indexable: false,
+            indexabilityReason: 'Redirected',
+            title: '',
+            error: null,
+        });
+        expect(byPath.get('/c')).toMatchObject({ status: 200, title: 'C', depth: 2, redirectUrl: null });
+        expect(byPath.get('/a')).toMatchObject({ redirectType: '', redirectUrl: null });
+    });
+
+    it('reports each hop of a redirect chain', async () => {
+        const { byPath } = await crawl('/chain');
+        expect(byPath.get('/chain')).toMatchObject({ status: 302, redirectUrl: `${origin}/redirect`, depth: 0 });
+        expect(byPath.get('/redirect')).toMatchObject({ status: 301, redirectUrl: `${origin}/c`, depth: 1 });
+        expect(byPath.get('/c')).toMatchObject({ status: 200, title: 'C', depth: 2 });
+    });
+
+    it('reports a redirect loop as a redirect, not an error', async () => {
+        const { byPath } = await crawl('/loop');
+        expect(byPath.get('/loop')).toMatchObject({ status: 302, redirectUrl: `${origin}/loop`, redirectType: 'HTTP Redirect', error: null });
+    });
+
+    it.each([
+        ['/meta-refresh', 'Meta Refresh Redirect', 'Moving'],
+        ['/refresh-header', 'HTTP Refresh Redirect', 'Refresh header'],
+    ])('reports %s as a %s with its own content, and crawls the target', async (path, redirectType, title) => {
+        const { byPath } = await crawl(path);
+        expect(byPath.get(path)).toMatchObject({
+            status: 200,
+            title,
+            redirectType,
+            redirectUrl: `${origin}/c`,
+            indexable: false,
+            indexabilityReason: 'Redirected',
+            error: null,
+        });
+        expect(byPath.get('/c')).toMatchObject({ status: 200, title: 'C' });
     });
 
     it('reports response details: status text, HTTP version, headers, size, hash, folder depth and timestamp', async () => {
@@ -255,7 +308,7 @@ describe('SiteCrawler (fast HTML mode)', () => {
             httpRelNext: `${origin}/docs/guide/page?p=2`,
             sizeBytes: Buffer.byteLength(DETAILS_BODY),
             hash: createHash('md5').update(DETAILS_BODY).digest('hex'),
-            folderDepth: 3,
+            folderDepth: 2,
             urlEncoded: `${origin}/docs/guide/page`,
         });
         expect(Date.parse(row.crawlTimestamp)).toBeGreaterThanOrEqual(before - 1000);
@@ -337,7 +390,7 @@ describe('SiteCrawler (fast HTML mode)', () => {
     it.each([
         [0, ['/']],
         [1, ['/', '/a', '/b', '/broken', '/missing', '/redirect', '/xrobots']],
-        [2, ['/', '/a', '/a/deep', '/b', '/broken', '/missing', '/redirect', '/xrobots']],
+        [2, ['/', '/a', '/a/deep', '/b', '/broken', '/c', '/missing', '/redirect', '/xrobots']],
     ])('Depth %i limits how far links are followed', async (maxDepth, expected) => {
         const { paths } = await crawl('/', { maxDepth });
         expect(paths).toEqual(expected);
@@ -478,8 +531,10 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
             hash: createHash('md5').update(DETAILS_BODY).digest('hex'),
         });
 
-        const redirect = await crawl('/redirect', { renderJs: true, maxDepth: 0 });
-        expect(redirect.byPath.get('/redirect')).toMatchObject({ finalUrl: `${origin}/c`, redirectType: 'HTTP Redirect' });
+        const chain = await crawl('/chain', { renderJs: true });
+        expect(chain.byPath.get('/chain')).toMatchObject({ status: 302, redirectUrl: `${origin}/redirect`, redirectType: 'HTTP Redirect', title: '' });
+        expect(chain.byPath.get('/redirect')).toMatchObject({ status: 301, redirectUrl: `${origin}/c` });
+        expect(chain.byPath.get('/c')).toMatchObject({ status: 200, title: 'C' });
     });
 
     it('reports the page transferred bytes, and Total Transferred including every resource, with the cache off', async () => {
@@ -500,6 +555,30 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
         // Counted again although /weight/a cached them.
         expect(b.totalTransferredBytes).toBe(b.transferredBytes! + resources);
         expect(requested.filter((p) => p === '/weight/style.css')).toHaveLength(2);
+    });
+
+    it.each([
+        ['/meta-refresh', 'Meta Refresh Redirect', 'Moving'],
+        ['/refresh-header', 'HTTP Refresh Redirect', 'Refresh header'],
+        ['/js-redirect', 'JavaScript Redirect', 'JS redirect'],
+    ])('keeps %s on its own content (no navigation mid-extraction) and reports a %s', async (path, redirectType, title) => {
+        const { byPath } = await crawl(path, { renderJs: true, concurrency: 2 });
+        expect(byPath.get(path)).toMatchObject({
+            status: 200,
+            title,
+            redirectType,
+            redirectUrl: `${origin}/c`,
+            indexable: false,
+            indexabilityReason: 'Redirected',
+            error: null,
+        });
+        expect(byPath.get('/c')).toMatchObject({ status: 200, title: 'C' });
+    });
+
+    it('does not report history.pushState as a redirect', async () => {
+        const { byPath, paths } = await crawl('/push-state', { renderJs: true, maxDepth: 0 });
+        expect(byPath.get('/push-state')).toMatchObject({ status: 200, title: 'Push state', redirectUrl: null, redirectType: '', indexable: true });
+        expect(paths).toEqual(['/push-state']);
     });
 
     it('reports a challenge page as blocked in browser mode too', async () => {
