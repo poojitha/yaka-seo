@@ -29,6 +29,8 @@ import { SiteCrawler } from '../../src/main/crawler';
  * /dup ─ /dup/1, /dup/2 (near duplicates of each other), /dup/3 (different text), /dup/noindex (copy of /dup/1).
  * Redirects: /chain 302 -> /redirect 301 -> /c, /loop 302 -> itself, /meta-refresh and /refresh-header (-> /c),
  * /js-redirect (location.replace -> /c), /push-state (history.pushState, not a redirect).
+ * /files links to non-HTML responses: an image, a PDF (noindex and canonical by header), a 204, an unknown
+ * Content-Type, and a 301 to another image (/files/moved.png).
  */
 const html = (body: string, head = '') => `<!doctype html><html><head>${head}</head><body>${body}</body></html>`;
 const links = (...paths: string[]) => paths.map((p) => `<a href="${p}">${p}</a>`).join('\n');
@@ -122,6 +124,33 @@ const routes: Record<string, Route> = {
     '/dup/2': page(`<p>${ARTICLE.replace('sentence 150', 'sentence changed')}</p>${links('/dup', '/dup/1')}`, '<title>Two</title>'),
     '/dup/3': page(`<p>${OTHER_ARTICLE}</p>`, '<title>Three</title>'),
     '/dup/noindex': page(`<p>${ARTICLE}</p>`, '<title>Copy</title><meta name="robots" content="noindex">'),
+
+    // Linked files that aren't HTML: each is still a row, with its status and headers.
+    '/files': page(links('/files/pixel.png', '/files/doc.pdf', '/files/empty', '/files/odd', '/files/to-image'), '<title>Files</title>'),
+    '/files/pixel.png': (_req, res) => {
+        res.writeHead(200, { 'content-type': 'image/png', 'content-length': WEIGHT_PNG.length, 'last-modified': 'Tue, 01 Sep 2026 10:00:00 GMT' });
+        res.end(WEIGHT_PNG);
+    },
+    '/files/doc.pdf': (_req, res) => {
+        res.writeHead(200, { 'content-type': 'application/pdf', 'x-robots-tag': 'noindex', link: '</files/other.pdf>; rel="canonical"' });
+        res.end('%PDF-1.4 not really a pdf');
+    },
+    '/files/empty': (_req, res) => {
+        res.writeHead(204);
+        res.end();
+    },
+    '/files/odd': (_req, res) => {
+        res.writeHead(200, { 'content-type': 'abc/xyz; charset=UTF-8' });
+        res.end('text');
+    },
+    '/files/to-image': (_req, res) => {
+        res.writeHead(301, { location: '/files/moved.png' });
+        res.end();
+    },
+    '/files/moved.png': (_req, res) => {
+        res.writeHead(200, { 'content-type': 'image/png' });
+        res.end(WEIGHT_PNG);
+    },
 
     // Response-level fields: headers the crawler reports, and a fixed body for size and hash.
     '/docs/guide/page': (_req, res) => {
@@ -294,6 +323,35 @@ describe('SiteCrawler (fast HTML mode)', () => {
             error: null,
         });
         expect(byPath.get('/c')).toMatchObject({ status: 200, title: 'C' });
+    });
+
+    it('reports linked files that are not HTML as rows with their status and headers, not as errors', async () => {
+        const { byPath } = await crawl('/files');
+        expect(byPath.get('/files/pixel.png')).toMatchObject({
+            status: 200,
+            contentType: 'image/png',
+            sizeBytes: WEIGHT_PNG.length,
+            transferredBytes: WEIGHT_PNG.length,
+            lastModified: 'Tue, 01 Sep 2026 10:00:00 GMT',
+            title: '',
+            wordCount: 0,
+            indexable: true,
+            error: null,
+        });
+        // Header directives apply to any file.
+        expect(byPath.get('/files/doc.pdf')).toMatchObject({
+            contentType: 'application/pdf',
+            xRobotsTag: 'noindex',
+            canonical: `${origin}/files/other.pdf`,
+            indexable: false,
+            indexabilityReason: 'noindex (X-Robots-Tag)',
+            error: null,
+        });
+        expect(byPath.get('/files/empty')).toMatchObject({ status: 204, statusText: 'No Content', contentType: null, sizeBytes: 0, error: null });
+        expect(byPath.get('/files/odd')).toMatchObject({ status: 200, contentType: 'abc/xyz; charset=UTF-8', error: null });
+        // A redirect whose target isn't HTML still queues the target.
+        expect(byPath.get('/files/to-image')).toMatchObject({ status: 301, redirectUrl: `${origin}/files/moved.png` });
+        expect(byPath.get('/files/moved.png')).toMatchObject({ status: 200, contentType: 'image/png', error: null });
     });
 
     it('reports response details: status text, HTTP version, headers, size, hash, folder depth and timestamp', async () => {

@@ -6,6 +6,7 @@ import type { CrawlAnalysis, CrawlOptions, PageResult, PostCrawlFields } from '@
 import { analyseCrawl, minhashSignature, type CrawledPage } from './analysis';
 import { carbonRating, co2Milligrams } from './carbon';
 import { contentText, detectBotProtection, extractSeo, linkTargets, refreshTarget, resolveUrl } from './extract';
+import { loadHtml } from './html';
 
 // Report 4xx/5xx pages as results instead of letting Crawlee treat them as failures and retry.
 const HTTP_ERROR_CODES = Array.from({ length: 200 }, (_, i) => 400 + i);
@@ -135,13 +136,20 @@ export class SiteCrawler {
             },
         };
 
-        type EnqueueLinks = (opts: { strategy: 'same-hostname' | 'all'; urls?: string[] }) => Promise<unknown>;
-        /** Queues a redirect target, if it's on the crawl's hostname (checked here, since Crawlee compares against the loaded URL). */
-        const enqueueTarget = async (request: Request, target: string, enqueueLinks: EnqueueLinks) => {
-            if (new URL(target).hostname === new URL(request.url).hostname) await enqueueLinks({ urls: [target], strategy: 'all' });
+        interface Queue {
+            enqueueLinks: (opts: { strategy: 'same-hostname' }) => Promise<unknown>;
+            addRequests: (requests: string[]) => Promise<unknown>;
+        }
+        /**
+         * Queues a redirect target, if it's on the crawl's hostname (checked here, since Crawlee compares against the
+         * loaded URL). addRequests, not enqueueLinks: the latter does nothing when the response isn't HTML (a 3xx
+         * without a Content-Type, or one leading to an image), but both apply the depth, robots.txt and page limits.
+         */
+        const enqueueTarget = async (request: Request, target: string, queue: Queue) => {
+            if (new URL(target).hostname === new URL(request.url).hostname) await queue.addRequests([target]);
         };
 
-        const handlePage = async (request: Request, res: PageResponse, $: CheerioRoot, enqueueLinks: EnqueueLinks) => {
+        const handlePage = async (request: Request, res: PageResponse, $: CheerioRoot, queue: Queue) => {
             const { status, headers, body } = res;
             // An HTTP redirect is its own row, and only its next hop is queued: the page it leads to is reported as
             // that hop's row, as in Screaming Frog. Also covers a 3xx the client didn't follow (300, 305).
@@ -151,7 +159,7 @@ export class SiteCrawler {
             if (hop) {
                 const row = redirectResult(request, hop, HTTP_VERSIONS[res.httpVersion.toLowerCase()] ?? res.httpVersion);
                 report(row);
-                if (row.redirectUrl) await enqueueTarget(request, row.redirectUrl, enqueueLinks);
+                if (row.redirectUrl) await enqueueTarget(request, row.redirectUrl, queue);
                 return;
             }
             const co2Mg = res.totalTransferredBytes === null ? null : co2Milligrams(res.totalTransferredBytes);
@@ -229,8 +237,8 @@ export class SiteCrawler {
                     signature: seo.indexable ? minhashSignature(contentText($)) : null,
                 },
             );
-            if (followed) await enqueueLinks({ strategy: 'same-hostname' });
-            if (redirectsAway) await enqueueTarget(request, redirectUrl!, enqueueLinks);
+            if (followed) await queue.enqueueLinks({ strategy: 'same-hostname' });
+            if (redirectsAway) await enqueueTarget(request, redirectUrl!, queue);
         };
 
         const { userAgent } = options;
@@ -292,7 +300,7 @@ export class SiteCrawler {
                             await Promise.race([page.waitForLoadState('load'), navigationBlocked.get(page)]);
                         },
                     ],
-                    async requestHandler({ request, response, page, parseWithCheerio, enqueueLinks }) {
+                    async requestHandler({ request, response, page, parseWithCheerio, enqueueLinks, addRequests }) {
                         const $ = await parseWithCheerio();
                         // Playwright's Response doesn't expose the protocol; Navigation Timing does ('h2', 'http/1.1').
                         const httpVersion = await page
@@ -328,7 +336,7 @@ export class SiteCrawler {
                             blockedNavigation: blockedNavigations.get(page) ?? null,
                             rawHrefs,
                         };
-                        await handlePage(request, pageResponse, $, enqueueLinks);
+                        await handlePage(request, pageResponse, $, { enqueueLinks, addRequests });
                     },
                 },
                 config,
@@ -338,6 +346,9 @@ export class SiteCrawler {
                 {
                     ...shared,
                     ignoreHttpErrorStatusCodes: HTTP_ERROR_CODES,
+                    // Every linked URL is reported, whatever it serves (images, PDFs, a 204 with no body), as in
+                    // Screaming Frog. By default Crawlee fails anything that isn't HTML, XML or JSON.
+                    additionalMimeTypes: ['*/*'],
                     preNavigationHooks: [
                         ...shared.preNavigationHooks,
                         ({ request }, gotOptions) => {
@@ -354,7 +365,7 @@ export class SiteCrawler {
                             };
                         },
                     ],
-                    async requestHandler({ request, response, body, $, enqueueLinks }) {
+                    async requestHandler({ request, response, body, $, enqueueLinks, addRequests }) {
                         const headers = Object.fromEntries(
                             Object.entries(response.headers).map(([k, v]) => [
                                 k.toLowerCase(),
@@ -377,7 +388,10 @@ export class SiteCrawler {
                             blockedNavigation: null,
                             rawHrefs: null,
                         };
-                        await handlePage(request, pageResponse, $, enqueueLinks);
+                        // Crawlee only parses HTML and XML; anything else gets an empty document, so its row
+                        // still carries the header-based fields (X-Robots-Tag, Link canonical). ($ is typed as always
+                        // set, but isn't.)
+                        await handlePage(request, pageResponse, $ ?? loadHtml(''), { enqueueLinks, addRequests });
                     },
                 },
                 config,
