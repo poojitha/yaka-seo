@@ -47,6 +47,47 @@ interface RequestTrace {
     redirect: RedirectHop | null;
 }
 
+/**
+ * Browser navigation errors for URLs that answer fine over plain HTTP: a download (PDF, unknown Content-Type), a status
+ * Chromium won't display (204, 205, 304 → ERR_ABORTED; 407), and a redirect loop. JS mode fetches these over HTTP instead.
+ */
+const HTTP_FALLBACK_ERRORS = /Download is starting|net::ERR_ABORTED|net::ERR_TOO_MANY_REDIRECTS|net::ERR_UNEXPECTED_PROXY_AUTH/;
+
+/** Content types parsed as a page. Anything else (images, PDFs, JSON…) gets an empty document. */
+const isHtml = (contentType: string | undefined) => /^\s*(text\/html|application\/xhtml\+xml)\b/i.test(contentType ?? '');
+
+/** A got response, as fast HTML mode and the JS-mode HTTP fallback receive it. */
+interface GotResponseLike {
+    statusCode?: number;
+    headers: Record<string, string | string[] | undefined>;
+    httpVersion: string;
+}
+
+/** A got response as a PageResponse. `trace` is what the got hooks recorded for it. */
+function gotPageResponse(response: GotResponseLike, body: Buffer, trace: RequestTrace | undefined): PageResponse {
+    const headers = Object.fromEntries(
+        Object.entries(response.headers).map(([k, v]) => [
+            k.toLowerCase(),
+            // Set-Cookie values contain commas (Expires=...), so they're joined with '\n' like Playwright does.
+            Array.isArray(v) ? v.join(k.toLowerCase() === 'set-cookie' ? '\n' : ',') : (v ?? ''),
+        ]),
+    );
+    // Uncompressed responses aren't counted: the body as received is the body.
+    const transferred = trace?.bytes ?? body.length;
+    return {
+        status: response.statusCode ?? null,
+        headers,
+        httpVersion: response.httpVersion,
+        body,
+        transferredBytes: transferred,
+        // Only the requested URL is fetched, none of its resources.
+        totalTransferredBytes: transferred,
+        redirect: trace?.redirect ?? null,
+        blockedNavigation: null,
+        rawHrefs: null,
+    };
+}
+
 /** Rows are sent before the crawl ends, when the post-crawl fields aren't known yet. */
 const NOT_ANALYSED: PostCrawlFields = {
     inlinks: null,
@@ -128,8 +169,14 @@ export class SiteCrawler {
             onPage(row);
         };
 
-        /** Fast HTML mode: per-request state filled in by got hooks. */
+        /** Fast HTML mode and the JS-mode HTTP fallback: per-request state filled in by got hooks. */
         const traces = new WeakMap<Request, RequestTrace>();
+        /** got hooks that fill in a fresh trace for the request. */
+        const traceHooks = (request: Request) => {
+            const trace: RequestTrace = { bytes: null, redirect: null };
+            traces.set(request, trace);
+            return { beforeRequest: [countRawBodyBytes(trace)], beforeRedirect: [recordFirstRedirect(trace)] };
+        };
 
         const shared = {
             requestQueue,
@@ -257,6 +304,35 @@ export class SiteCrawler {
         };
 
         const { userAgent } = options;
+
+        type SendRequest = (options: Record<string, unknown>) => Promise<GotResponseLike & { body: unknown }>;
+        /**
+         * JS mode: reports a URL the browser couldn't show as a page (see HTTP_FALLBACK_ERRORS) by fetching it over
+         * plain HTTP, the same way fast HTML mode does. Its links aren't followed; a redirect's target is.
+         */
+        const fetchOverHttp = async (request: Request, sendRequest: SendRequest, addRequests: Queue['addRequests']) => {
+            request.userData.startedAt = Date.now();
+            const queue: Queue = { enqueueLinks: async () => {}, addRequests };
+            try {
+                const response = await sendRequest({
+                    responseType: 'buffer',
+                    throwHttpErrors: false,
+                    hooks: traceHooks(request),
+                    ...(userAgent && { headers: { 'user-agent': userAgent } }),
+                });
+                const body = Buffer.isBuffer(response.body) ? response.body : Buffer.from(String(response.body ?? ''));
+                const pageResponse = gotPageResponse(response, body, traces.get(request));
+                const document = isHtml(pageResponse.headers['content-type']) ? loadHtml(body.toString('utf8')) : loadHtml('');
+                await handlePage(request, pageResponse, document, queue);
+            } catch (error) {
+                // A redirect loop fails after too many hops, but the URL itself still answered with a redirect.
+                const hop = traces.get(request)?.redirect;
+                if (!hop) throw error;
+                const row = redirectResult(request, hop);
+                report(row);
+                if (row.redirectUrl) await enqueueTarget(request, row.redirectUrl, queue);
+            }
+        };
         if (options.renderJs) {
             /** Every request each page has finished loading, for Total Transferred. */
             const finishedRequests = new WeakMap<Page, BrowserRequest[]>();
@@ -268,6 +344,16 @@ export class SiteCrawler {
                 {
                     ...shared,
                     headless: true,
+                    // Retrying in the browser would fail the same way; the HTTP fallback below runs instead.
+                    errorHandler: ({ request }, error) => {
+                        if (HTTP_FALLBACK_ERRORS.test(error.message)) request.noRetry = true;
+                    },
+                    failedRequestHandler: async ({ request, sendRequest, addRequests }, error) => {
+                        if (!HTTP_FALLBACK_ERRORS.test(error.message)) return report(errorResult(request, error.message));
+                        await fetchOverHttp(request, sendRequest as unknown as SendRequest, addRequests).catch((e: Error) =>
+                            report(errorResult(request, e.message)),
+                        );
+                    },
                     // Crawlee's fingerprints override the User-Agent, so they're only used for the browser ('') setting.
                     ...(userAgent && { browserPoolOptions: { useFingerprints: false }, launchContext: { userAgent } }),
                     preNavigationHooks: [
@@ -316,7 +402,10 @@ export class SiteCrawler {
                         },
                     ],
                     async requestHandler({ request, response, page, parseWithCheerio, enqueueLinks, addRequests }) {
-                        const $ = await parseWithCheerio();
+                        // An image or text file is shown in a page Chromium generates (an image's is titled
+                        // "name.png (120×38)"), which isn't the site's content: like fast mode, it gets an empty document.
+                        const html = !response || isHtml(response.headers()['content-type']);
+                        const $ = html ? await parseWithCheerio() : loadHtml('');
                         // Playwright's Response doesn't expose the protocol; Navigation Timing does ('h2', 'http/1.1').
                         const httpVersion = await page
                             .evaluate(() => (performance.getEntriesByType('navigation')[0] as { nextHopProtocol?: string } | undefined)?.nextHopProtocol ?? '')
@@ -331,7 +420,7 @@ export class SiteCrawler {
                         const resourceSizes = await Promise.all((finishedRequests.get(page) ?? []).map(bodySize));
                         const body = (await response?.body().catch(() => null)) ?? null;
                         // Parse the served HTML with the browser's own parser, so no HTML library is needed in main.
-                        const rawHrefs = body
+                        const rawHrefs = body && html
                             ? await page
                                   .evaluate((html) => {
                                       const doc = new (globalThis as unknown as BrowserGlobals).DOMParser().parseFromString(html, 'text/html');
@@ -368,41 +457,17 @@ export class SiteCrawler {
                         ...shared.preNavigationHooks,
                         ({ request }, gotOptions) => {
                             if (userAgent) gotOptions.headers = { ...gotOptions.headers, 'user-agent': userAgent };
-                            const trace: RequestTrace = { bytes: null, redirect: null };
-                            traces.set(request, trace);
-                            type Hooks = NonNullable<typeof gotOptions.hooks>;
-                            const countBytes = countRawBodyBytes(trace) as unknown as NonNullable<Hooks['beforeRequest']>[number];
-                            const recordRedirect = recordFirstRedirect(trace) as unknown as NonNullable<Hooks['beforeRedirect']>[number];
+                            const hooks = traceHooks(request);
                             gotOptions.hooks = {
                                 ...gotOptions.hooks,
-                                beforeRequest: [...(gotOptions.hooks?.beforeRequest ?? []), countBytes],
-                                beforeRedirect: [...(gotOptions.hooks?.beforeRedirect ?? []), recordRedirect],
+                                beforeRequest: [...(gotOptions.hooks?.beforeRequest ?? []), ...(hooks.beforeRequest as never[])],
+                                beforeRedirect: [...(gotOptions.hooks?.beforeRedirect ?? []), ...(hooks.beforeRedirect as never[])],
                             };
                         },
                     ],
                     async requestHandler({ request, response, body, contentType, $, enqueueLinks, addRequests }) {
-                        const headers = Object.fromEntries(
-                            Object.entries(response.headers).map(([k, v]) => [
-                                k.toLowerCase(),
-                                // Set-Cookie values contain commas (Expires=...), so they're joined with '\n' like Playwright does.
-                                Array.isArray(v) ? v.join(k.toLowerCase() === 'set-cookie' ? '\n' : ',') : (v ?? ''),
-                            ]),
-                        );
                         const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
-                        // Uncompressed responses aren't counted: the body as received is the body.
-                        const transferred = traces.get(request)?.bytes ?? buffer.length;
-                        const pageResponse: PageResponse = {
-                            status: response.statusCode ?? null,
-                            headers,
-                            httpVersion: response.httpVersion,
-                            body: buffer,
-                            transferredBytes: transferred,
-                            // Only the HTML is fetched in this mode.
-                            totalTransferredBytes: transferred,
-                            redirect: traces.get(request)?.redirect ?? null,
-                            blockedNavigation: null,
-                            rawHrefs: null,
-                        };
+                        const pageResponse = gotPageResponse(response, buffer, traces.get(request));
                         // Crawlee parses HTML with htmlparser2, which doesn't build the tree a browser does: no implied
                         // <body> around bare text, and a body-only element (<div>, <p>…) inside <head> doesn't end the head. Pages
                         // are re-parsed with Cheerio's HTML5 parser so fields match what search engines see.

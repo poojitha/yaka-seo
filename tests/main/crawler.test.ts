@@ -666,6 +666,37 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
         expect(byPath.get('/c')).toMatchObject({ status: 200, title: 'C' });
     });
 
+    it('reports files and statuses the browser cannot show as a page like fast mode does, not as errors', async () => {
+        const { byPath } = await crawl('/files', { renderJs: true });
+        // Chromium shows an image in a page of its own (titled "pixel.png (1×1)"); that isn't the site's content.
+        expect(byPath.get('/files/pixel.png')).toMatchObject({
+            status: 200,
+            contentType: 'image/png',
+            title: '',
+            imagesMissingAlt: 0,
+            indexable: true,
+            error: null,
+        });
+        // Downloads (PDF, unknown Content-Type) and a 204 fail in the browser, so they're fetched over HTTP.
+        expect(byPath.get('/files/doc.pdf')).toMatchObject({
+            status: 200,
+            contentType: 'application/pdf',
+            indexabilityReason: 'noindex (X-Robots-Tag)',
+            error: null,
+        });
+        expect(byPath.get('/files/odd')).toMatchObject({ status: 200, contentType: 'abc/xyz; charset=UTF-8', error: null });
+        expect(byPath.get('/files/empty')).toMatchObject({ status: 204, statusText: 'No Content', error: null });
+        expect(byPath.get('/files/to-image')).toMatchObject({ status: 301, redirectUrl: `${origin}/files/moved.png` });
+        expect(byPath.get('/files/moved.png')).toMatchObject({ status: 200, title: '', error: null });
+        // Fetched once over HTTP, not retried in the browser first.
+        expect(requested.filter((p) => p === '/files/doc.pdf')).toHaveLength(2);
+    });
+
+    it('reports a redirect loop as a redirect in browser mode too', async () => {
+        const { byPath } = await crawl('/loop', { renderJs: true });
+        expect(byPath.get('/loop')).toMatchObject({ status: 302, redirectUrl: `${origin}/loop`, redirectType: 'HTTP Redirect', error: null });
+    });
+
     it('does not report history.pushState as a redirect', async () => {
         const { byPath, paths } = await crawl('/push-state', { renderJs: true, maxDepth: 0 });
         expect(byPath.get('/push-state')).toMatchObject({ status: 200, title: 'Push state', redirectUrl: null, redirectType: '', indexable: true });
