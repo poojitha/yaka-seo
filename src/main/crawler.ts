@@ -58,6 +58,8 @@ const isHtml = (contentType: string | undefined) => /^\s*(text\/html|application
 
 /** A got response, as fast HTML mode and the JS-mode HTTP fallback receive it. */
 interface GotResponseLike {
+    /** The final URL, after redirects. */
+    url?: string;
     statusCode?: number;
     headers: Record<string, string | string[] | undefined>;
     httpVersion: string;
@@ -249,6 +251,11 @@ export class SiteCrawler {
                 });
                 return;
             }
+            // A 4xx/5xx page's links aren't followed, and its content isn't analysed: the error page says nothing about
+            // the URL's real content (Screaming Frog leaves title, meta tags, word count and outlinks blank too).
+            // Only the response itself (status, headers, size) is reported.
+            const followed = status === null || status < 400;
+            if (!followed) $ = loadHtml('');
             const pageUrl = resolveUrl(request.loadedUrl ?? request.url, request.url) ?? request.url;
             const base = baseResult(request);
             const seo = extractSeo($, pageUrl, status, headers, body?.toString('utf8').length);
@@ -276,7 +283,6 @@ export class SiteCrawler {
             const served = res.rawHrefs && new Set(Object.values(linkTargets(res.rawHrefs, pageUrl)).flat());
             const jsOnly = (targets: string[]) => new Set(served ? targets.filter((t) => !served.has(t)) : []);
             const jsInternal = jsOnly(links.internal);
-            const followed = status === null || status < 400;
 
             report(
                 {
@@ -292,8 +298,7 @@ export class SiteCrawler {
                 },
                 {
                     isHtml200: status === 200 && /html/i.test(response.contentType ?? ''),
-                    // Same rule as enqueueing: a 4xx/5xx page's links aren't followed, so they don't count as inlinks.
-                    links: followed ? links.internal : [],
+                    links: links.internal,
                     jsLinks: jsInternal,
                     // Only indexable pages are checked for near duplicates, as in Screaming Frog by default.
                     signature: seo.indexable ? minhashSignature(contentText($)) : null,
@@ -308,11 +313,13 @@ export class SiteCrawler {
         type SendRequest = (options: Record<string, unknown>) => Promise<GotResponseLike & { body: unknown }>;
         /**
          * JS mode: reports a URL the browser couldn't show as a page (see HTTP_FALLBACK_ERRORS) by fetching it over
-         * plain HTTP, the same way fast HTML mode does. Its links aren't followed; a redirect's target is.
+         * plain HTTP, the same way fast HTML mode does: its links and a redirect's target are queued.
          */
         const fetchOverHttp = async (request: Request, sendRequest: SendRequest, addRequests: Queue['addRequests']) => {
             request.userData.startedAt = Date.now();
-            const queue: Queue = { enqueueLinks: async () => {}, addRequests };
+            /** Same-hostname links of the fetched page; handlePage() decides whether they're followed. */
+            let links: string[] = [];
+            const queue: Queue = { enqueueLinks: async () => links.length && addRequests(links), addRequests };
             try {
                 const response = await sendRequest({
                     responseType: 'buffer',
@@ -323,6 +330,10 @@ export class SiteCrawler {
                 const body = Buffer.isBuffer(response.body) ? response.body : Buffer.from(String(response.body ?? ''));
                 const pageResponse = gotPageResponse(response, body, traces.get(request));
                 const document = isHtml(pageResponse.headers['content-type']) ? loadHtml(body.toString('utf8')) : loadHtml('');
+                const hrefs = document('a[href]')
+                    .map((_, el) => document(el).attr('href')!)
+                    .get();
+                links = linkTargets(hrefs, response.url ?? request.url).internal;
                 await handlePage(request, pageResponse, document, queue);
             } catch (error) {
                 // A redirect loop fails after too many hops, but the URL itself still answered with a redirect.
@@ -401,7 +412,14 @@ export class SiteCrawler {
                             await Promise.race([page.waitForLoadState('load'), navigationBlocked.get(page)]);
                         },
                     ],
-                    async requestHandler({ request, response, page, parseWithCheerio, enqueueLinks, addRequests }) {
+                    async requestHandler({ request, response, page, parseWithCheerio, enqueueLinks, addRequests, sendRequest }) {
+                        const redirect = response ? await firstRedirect(response.request()) : null;
+                        // Chromium upgrades http:// to https:// by itself for a host that sent HSTS earlier in the
+                        // crawl: a "307 Internal Redirect" the server never sent. What the server really answers for
+                        // the http:// URL (often a 200 page, as Screaming Frog reports) is fetched over plain HTTP.
+                        if (redirect?.headers['non-authoritative-reason']) {
+                            return fetchOverHttp(request, sendRequest as unknown as SendRequest, addRequests);
+                        }
                         // An image or text file is shown in a page Chromium generates (an image's is titled
                         // "name.png (120×38)"), which isn't the site's content: like fast mode, it gets an empty document.
                         const html = !response || isHtml(response.headers()['content-type']);
@@ -436,7 +454,7 @@ export class SiteCrawler {
                             body,
                             transferredBytes: response ? await bodySize(response.request()) : null,
                             totalTransferredBytes: resourceSizes.reduce((a, b) => a + b, 0),
-                            redirect: response ? await firstRedirect(response.request()) : null,
+                            redirect,
                             blockedNavigation: blockedNavigations.get(page) ?? null,
                             rawHrefs,
                         };

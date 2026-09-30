@@ -289,6 +289,8 @@ describe('SiteCrawler (fast HTML mode)', () => {
     it('reports 4xx pages as results and does not follow their links', async () => {
         const { byPath } = await crawl('/');
         expect(byPath.get('/missing')).toMatchObject({ status: 404, indexable: false, indexabilityReason: 'Status 404', error: null });
+        // The error page's content isn't analysed: it has a title and a link, neither reported.
+        expect(byPath.get('/missing')).toMatchObject({ title: '', wordCount: 0, internalLinks: 0, textRatio: 0, readability: '' });
         expect(requested).not.toContain('/from-404');
         // Reported once, not retried as a failure.
         expect(requested.filter((p) => p === '/missing')).toHaveLength(1);
