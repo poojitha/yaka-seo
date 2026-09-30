@@ -18,5 +18,7 @@ export const FILTERS: { id: string; label: string; test: (r: PageResult) => bool
     { id: 'h1-missing', label: 'H1 missing', test: (r) => isHtml(r) && r.h1Count === 0 },
     { id: 'h1-multiple', label: 'Multiple H1', test: (r) => r.h1Count > 1 },
     { id: 'thin', label: 'Thin (< 200 words)', test: (r) => isHtml(r) && r.wordCount < 200 },
+    // Filled in when the crawl ends, so this tab stays empty until then.
+    { id: 'near-duplicates', label: 'Near duplicates', test: (r) => (r.nearDuplicates ?? 0) > 0 },
     { id: 'img-alt', label: 'Images missing alt', test: (r) => r.imagesMissingAlt > 0 },
 ];

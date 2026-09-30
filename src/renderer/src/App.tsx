@@ -24,9 +24,16 @@ export function App() {
     useEffect(() => {
         const offResults = window.api.onResults((rows) => setResults((prev) => prev.concat(rows)));
         const offProgress = window.api.onProgress(setProgress);
+        // Post-crawl fields arrive once, at the end; merge them into the rows (and the open details panel).
+        const offAnalysis = window.api.onAnalysis((analysis) => {
+            const merge = (r: PageResult) => (analysis[r.url] ? { ...r, ...analysis[r.url] } : r);
+            setResults((prev) => prev.map(merge));
+            setSelected((s) => s && merge(s));
+        });
         return () => {
             offResults();
             offProgress();
+            offAnalysis();
         };
     }, []);
 

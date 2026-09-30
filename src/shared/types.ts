@@ -106,9 +106,47 @@ export interface PageResult {
     uniqueInternalLinks: number;
     externalLinks: number;
     uniqueExternalLinks: number;
+    /** Distinct internal/external link targets that only exist after JavaScript runs. Always 0 in fast HTML mode. */
+    uniqueJsOutlinks: number;
+    uniqueExternalJsOutlinks: number;
     imagesMissingAlt: number;
+
+    // Post-crawl fields: null until the crawl ends and main sends the analysis (see CrawlAnalysis).
+    /** Internal links to this page from other crawled pages (repeats on the same page count). */
+    inlinks: number | null;
+    /** Distinct crawled pages linking here. */
+    uniqueInlinks: number | null;
+    /** Distinct pages whose link here only exists after JavaScript runs. */
+    uniqueJsInlinks: number | null;
+    /** `uniqueInlinks` as a percentage of the crawl's 200 HTML pages. */
+    percentOfTotal: number | null;
+    /** 0-100, PageRank over the internal link graph on a log scale; the best-linked page is 100. */
+    linkScore: number | null;
+    /** URL of the most similar near-duplicate page (at least 90% similar text), or ''. */
+    closestNearDuplicate: string;
+    /** Similarity to `closestNearDuplicate` in percent, or null if there is none. */
+    closestNearDuplicateSimilarity: number | null;
+    /** Pages at least 90% similar to this one. null if the page isn't checked (non-indexable, or under 5 words). */
+    nearDuplicates: number | null;
+
     error: string | null;
 }
+
+/** The fields filled in after the crawl, once the whole link graph and all page texts are known. */
+export type PostCrawlFields = Pick<
+    PageResult,
+    | 'inlinks'
+    | 'uniqueInlinks'
+    | 'uniqueJsInlinks'
+    | 'percentOfTotal'
+    | 'linkScore'
+    | 'closestNearDuplicate'
+    | 'closestNearDuplicateSimilarity'
+    | 'nearDuplicates'
+>;
+
+/** Post-crawl fields for every crawled page, keyed by `PageResult.url`. */
+export type CrawlAnalysis = Record<string, PostCrawlFields>;
 
 /** 'stopping' and 'stopped' are sent by main after a Stop request; 'finished' means the crawl ran to completion. */
 export type CrawlStatus = 'idle' | 'running' | 'stopping' | 'stopped' | 'finished' | 'error';
@@ -126,6 +164,7 @@ export const IPC = {
     exportCsv: 'export:csv',
     results: 'crawl:results',
     progress: 'crawl:progress',
+    analysis: 'crawl:analysis',
 } as const;
 
 /** API exposed to the renderer by the preload script as `window.api`. */
@@ -135,4 +174,6 @@ export interface ScreamingApi {
     exportCsv(rows: PageResult[]): Promise<string | null>;
     onResults(cb: (rows: PageResult[]) => void): () => void;
     onProgress(cb: (progress: CrawlProgress) => void): () => void;
+    /** Sent once when a crawl ends (finished or stopped), after the last results and before the final progress. */
+    onAnalysis(cb: (analysis: CrawlAnalysis) => void): () => void;
 }

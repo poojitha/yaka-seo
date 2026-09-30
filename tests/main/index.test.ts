@@ -2,7 +2,7 @@ import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
+import type { CrawlAnalysis, CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
 import { makeResult } from '../fixtures';
 
 // --- Electron and SiteCrawler are replaced so the IPC layer can be tested on its own. ---
@@ -52,7 +52,7 @@ vi.mock('electron', () => {
 
 const crawlerMock = vi.hoisted(() => ({
     isRunning: false,
-    run: vi.fn<(options: CrawlOptions, onPage: (r: PageResult) => void) => Promise<void>>(),
+    run: vi.fn<(options: CrawlOptions, onPage: (r: PageResult) => void) => Promise<CrawlAnalysis>>(),
     stop: vi.fn(),
     teardown: vi.fn(),
 }));
@@ -102,12 +102,12 @@ describe('main process IPC', () => {
         expect(process.env.CRAWLEE_STORAGE_DIR).toBe(join(tmpdir(), 'crawlee-storage'));
     });
 
-    it('crawl:start reports running, streams results in 250 ms batches, then reports finished', async () => {
+    it('crawl:start reports running, streams results in 250 ms batches, then sends the analysis and reports finished', async () => {
         let onPage!: (r: PageResult) => void;
-        let finish!: () => void;
+        let finish!: (analysis: CrawlAnalysis) => void;
         crawlerMock.run.mockImplementation((_opts, cb) => {
             onPage = cb;
-            return new Promise<void>((r) => (finish = r));
+            return new Promise<CrawlAnalysis>((r) => (finish = r));
         });
 
         await invoke('crawl:start', options);
@@ -126,11 +126,18 @@ describe('main process IPC', () => {
         expect(resultBatches()).toHaveLength(1); // nothing new, nothing sent
 
         onPage(makeResult({ url: 'https://example.com/3' }));
-        finish();
+        const { inlinks, uniqueInlinks, uniqueJsInlinks, percentOfTotal, linkScore, closestNearDuplicate, closestNearDuplicateSimilarity, nearDuplicates } =
+            makeResult();
+        const analysis: CrawlAnalysis = {
+            'https://example.com/1': { inlinks, uniqueInlinks, uniqueJsInlinks, percentOfTotal, linkScore, closestNearDuplicate, closestNearDuplicateSimilarity, nearDuplicates },
+        };
+        finish(analysis);
         await vi.runOnlyPendingTimersAsync();
 
-        // Last page is flushed immediately on completion, before 'finished'.
+        // Last page is flushed immediately on completion, then the analysis, then 'finished'.
         expect(resultBatches().at(-1)).toEqual([expect.objectContaining({ url: 'https://example.com/3' })]);
+        expect(electron.sent.slice(-4).map((m) => m.channel)).toEqual(['crawl:results', 'crawl:progress', 'crawl:analysis', 'crawl:progress']);
+        expect(electron.sent.find((m) => m.channel === 'crawl:analysis')!.payload).toEqual(analysis);
         expect(progressEvents().at(-1)).toEqual({ status: 'finished', crawled: 3 });
         expect(vi.getTimerCount()).toBe(0); // flush interval cleared
     });
@@ -145,7 +152,7 @@ describe('main process IPC', () => {
         let fail!: (e: Error) => void;
         crawlerMock.run.mockImplementation((_opts, cb) => {
             onPage = cb;
-            return new Promise<void>((_r, reject) => (fail = reject));
+            return new Promise<CrawlAnalysis>((_r, reject) => (fail = reject));
         });
 
         await invoke('crawl:start', options);
@@ -165,7 +172,7 @@ describe('main process IPC', () => {
 
     it('crawl:stop asks the crawler to stop gracefully, reports stopping, then stopped', async () => {
         let finish!: () => void;
-        crawlerMock.run.mockImplementation(() => new Promise<void>((r) => (finish = r)));
+        crawlerMock.run.mockImplementation(() => new Promise<CrawlAnalysis>((r) => (finish = () => r({}))));
         await invoke('crawl:start', options);
 
         await invoke('crawl:stop');

@@ -50,6 +50,9 @@ describe('FILTERS', () => {
         ['thin', { wordCount: 200 }, false],
         ['thin', pdfRow, false],
         ['img-alt', { imagesMissingAlt: 1 }, true],
+        ['near-duplicates', { nearDuplicates: 2 }, true],
+        ['near-duplicates', { nearDuplicates: 0 }, false],
+        ['near-duplicates', { nearDuplicates: null }, false],
     ] as [string, Partial<PageResult>, boolean][])('%s with %o -> %s', (id, overrides, expected) => {
         expect(matches(id, overrides)).toBe(expected);
     });

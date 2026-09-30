@@ -1,5 +1,5 @@
 import type { CheerioRoot } from 'crawlee';
-import type { PageResult } from '@shared/types';
+import type { PageResult, PostCrawlFields } from '@shared/types';
 import { DESCRIPTION_FONT_PX, pixelWidth, TITLE_FONT_PX } from './pixel-width';
 
 /** Fields that don't come from the HTML and headers; the crawler fills these in. */
@@ -23,6 +23,9 @@ type ResponseFields =
     | 'co2Mg'
     | 'carbonRating'
     | 'hash'
+    | 'uniqueJsOutlinks'
+    | 'uniqueExternalJsOutlinks'
+    | keyof PostCrawlFields
     | 'error';
 type SeoFields = Omit<PageResult, ResponseFields>;
 
@@ -63,22 +66,12 @@ export function extractSeo($: CheerioRoot, pageUrl: string, status: number | nul
     const sentenceCount = text.split(/[.!?]+(?=\s|$)|\p{Zp}/u).filter((s) => /[\p{L}\p{N}]/u.test(s)).length;
     const html = $.html();
 
-    const pageHost = new URL(pageUrl).hostname;
-    let internalLinks = 0;
-    let externalLinks = 0;
-    const uniqueInternal = new Set<string>();
-    const uniqueExternal = new Set<string>();
-    $('a[href]').each((_, el) => {
-        const abs = resolveUrl($(el).attr('href')!, pageUrl);
-        if (!abs || !/^https?:/.test(abs)) return;
-        if (new URL(abs).hostname === pageHost) {
-            internalLinks++;
-            uniqueInternal.add(abs);
-        } else {
-            externalLinks++;
-            uniqueExternal.add(abs);
-        }
-    });
+    const links = linkTargets(
+        $('a[href]')
+            .map((_, el) => $(el).attr('href')!)
+            .get(),
+        pageUrl,
+    );
 
     const imagesMissingAlt = $('img').filter((_, el) => !clean($(el).attr('alt'))).length;
 
@@ -127,13 +120,32 @@ export function extractSeo($: CheerioRoot, pageUrl: string, status: number | nul
         fleschReadingEase: flesch,
         readability: flesch === null ? '' : readabilityBand(flesch),
         textRatio: html.length ? round((bodyText.length / html.length) * 100) : 0,
-        internalLinks,
-        uniqueInternalLinks: uniqueInternal.size,
-        externalLinks,
-        uniqueExternalLinks: uniqueExternal.size,
+        internalLinks: links.internal.length,
+        uniqueInternalLinks: new Set(links.internal).size,
+        externalLinks: links.external.length,
+        uniqueExternalLinks: new Set(links.external).size,
         imagesMissingAlt,
     };
 }
+
+/**
+ * Splits `<a href>` values into internal (same hostname as the page) and external http(s) targets: absolute, without
+ * #fragment, one entry per link. mailto:, tel:, javascript: and unparseable hrefs are dropped.
+ */
+export function linkTargets(hrefs: string[], pageUrl: string): { internal: string[]; external: string[] } {
+    const pageHost = new URL(pageUrl).hostname;
+    const internal: string[] = [];
+    const external: string[] = [];
+    for (const h of hrefs) {
+        const abs = resolveUrl(h, pageUrl);
+        if (!abs || !/^https?:/.test(abs)) continue;
+        (new URL(abs).hostname === pageHost ? internal : external).push(abs);
+    }
+    return { internal, external };
+}
+
+/** The page's visible body text as one whitespace-collapsed string. */
+export const contentText = ($: CheerioRoot) => clean(visibleText($));
 
 /**
  * Body text without scripts and styles. A paragraph separator (U+2029) follows each block element: unlike '\n'

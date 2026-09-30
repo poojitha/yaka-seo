@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import type { CrawlProgress, PageResult, ScreamingApi } from '@shared/types';
+import type { CrawlAnalysis, CrawlProgress, PageResult, ScreamingApi } from '@shared/types';
 import { makeResult } from '../fixtures';
 import { App } from '../../src/renderer/src/App';
 
 let emitResults: (rows: PageResult[]) => void;
 let emitProgress: (p: CrawlProgress) => void;
+let emitAnalysis: (a: CrawlAnalysis) => void;
 let api: { [K in keyof ScreamingApi]: ReturnType<typeof vi.fn> };
 
 beforeEach(() => {
@@ -19,6 +20,10 @@ beforeEach(() => {
         }),
         onProgress: vi.fn((cb) => {
             emitProgress = cb;
+            return () => {};
+        }),
+        onAnalysis: vi.fn((cb) => {
+            emitAnalysis = cb;
             return () => {};
         }),
     };
@@ -103,6 +108,23 @@ describe('App', () => {
         click('Show live results');
         fireEvent.click(screen.getByText('Home', { selector: '.cell' }));
         expect(screen.getByText('indexabilityReason', { selector: 'dt' })).toBeTruthy();
+    });
+
+    it('merges the post-crawl analysis into the rows and the open details panel', async () => {
+        render(<App />);
+        await startCrawl();
+        const live = pages.map((p) => ({ ...p, inlinks: null, linkScore: null }));
+        act(() => emitResults(live));
+        click('Show live results');
+        fireEvent.click(screen.getByText('Home', { selector: '.cell' }));
+        const detail = (name: string) => screen.getByText(name, { selector: 'dt' }).nextElementSibling!.textContent;
+        expect(detail('linkScore')).toBe('');
+
+        const { url, ...rest } = makeResult({ url: 'https://example.com/', inlinks: 7, linkScore: 100 });
+        const fields = { inlinks: rest.inlinks, uniqueInlinks: 2, uniqueJsInlinks: 0, percentOfTotal: 66.667, linkScore: rest.linkScore, closestNearDuplicate: '', closestNearDuplicateSimilarity: null, nearDuplicates: 0 };
+        act(() => emitAnalysis({ [url]: fields }));
+        expect(detail('linkScore')).toBe('100');
+        expect(detail('inlinks')).toBe('7');
     });
 
     it('Export CSV sends the visible rows to main', async () => {

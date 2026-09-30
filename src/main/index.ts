@@ -76,8 +76,10 @@ ipcMain.handle(IPC.startCrawl, async (event, input: unknown) => {
             state.crawled++;
             buffer.push(result);
         })
-        .then(() => {
+        .then((analysis) => {
             flush();
+            // Before the final status, so the UI has inlinks, link scores and near duplicates when it says "complete".
+            send(IPC.analysis, analysis);
             sendProgress({ status: state.stopping ? 'stopped' : 'finished', crawled: state.crawled });
         })
         .catch((err: Error) => {

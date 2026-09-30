@@ -2,9 +2,10 @@ import { createHash } from 'node:crypto';
 import { STATUS_CODES } from 'node:http';
 import { CheerioCrawler, Configuration, PlaywrightCrawler, RequestQueue, type CheerioRoot, type Request } from 'crawlee';
 import type { Page, Request as BrowserRequest } from 'playwright';
-import type { CrawlOptions, PageResult } from '@shared/types';
+import type { CrawlAnalysis, CrawlOptions, PageResult, PostCrawlFields } from '@shared/types';
+import { analyseCrawl, minhashSignature, type CrawledPage } from './analysis';
 import { carbonRating, co2Milligrams } from './carbon';
-import { detectBotProtection, extractSeo } from './extract';
+import { contentText, detectBotProtection, extractSeo, linkTargets } from './extract';
 
 // Report 4xx/5xx pages as results instead of letting Crawlee treat them as failures and retry.
 const HTTP_ERROR_CODES = Array.from({ length: 200 }, (_, i) => 400 + i);
@@ -23,7 +24,28 @@ interface PageResponse {
     totalTransferredBytes: number | null;
     /** Whether a redirect to `request.loadedUrl` was an HTTP 3xx (otherwise it was JavaScript). */
     redirectedByHttp: boolean;
+    /** `<a href>` values in the HTML as served, before JavaScript ran. null in fast HTML mode, where nothing runs. */
+    rawHrefs: string[] | null;
 }
+
+/** Rows are sent before the crawl ends, when the post-crawl fields aren't known yet. */
+const NOT_ANALYSED: PostCrawlFields = {
+    inlinks: null,
+    uniqueInlinks: null,
+    uniqueJsInlinks: null,
+    percentOfTotal: null,
+    linkScore: null,
+    closestNearDuplicate: '',
+    closestNearDuplicateSimilarity: null,
+    nearDuplicates: null,
+};
+
+/** Minimal DOMParser typing for code that runs inside the page (main's tsconfig has no DOM types). */
+type BrowserGlobals = {
+    DOMParser: new () => {
+        parseFromString(html: string, type: string): { querySelectorAll(selector: string): ArrayLike<{ getAttribute(name: string): string | null }> };
+    };
+};
 
 const HTTP_VERSIONS: Record<string, string> = { 'http/1.0': '1.0', 'http/1.1': '1.1', h2: '2', '2.0': '2', h3: '3' };
 
@@ -38,27 +60,39 @@ export class SiteCrawler {
         return this.busy;
     }
 
-    async run(options: CrawlOptions, onPage: OnPage): Promise<void> {
+    /**
+     * Crawls, reporting each page through `onPage` as it's done. Resolves when the crawl ends (finished or stopped)
+     * with the post-crawl analysis of every reported page.
+     */
+    async run(options: CrawlOptions, onPage: OnPage): Promise<CrawlAnalysis> {
         if (this.busy) throw new Error('A crawl is already running');
         // Claimed before the first await; `this.crawler` is only set after setup, so checking it let a second run slip in.
         this.busy = true;
         this.stopRequested = false;
         try {
-            await this.crawl(options, onPage);
+            return await this.crawl(options, onPage);
         } finally {
             this.busy = false;
         }
     }
 
-    private async crawl(options: CrawlOptions, onPage: OnPage): Promise<void> {
+    private async crawl(options: CrawlOptions, onPage: OnPage): Promise<CrawlAnalysis> {
         // Fresh in-memory storage per crawl so a previous crawl's queue doesn't mark URLs as already handled.
         const config = new Configuration({ persistStorage: false, purgeOnStart: true });
         const requestQueue = await RequestQueue.open(`crawl-${Date.now()}`, { config });
         // A Stop that arrived while the queue was opening would otherwise be lost (there was no crawler to stop yet).
         if (this.stopRequested) {
             await requestQueue.drop().catch(() => {});
-            return;
+            return {};
         }
+
+        // Link targets and text fingerprints for the post-crawl analysis. Kept here, not in the rows, so they
+        // aren't sent to the renderer.
+        const pages: CrawledPage[] = [];
+        const report = (row: PageResult, page: Partial<CrawledPage> = {}) => {
+            pages.push({ url: row.url, isHtml200: false, links: [], jsLinks: new Set(), signature: null, ...page });
+            onPage(row);
+        };
 
         const shared = {
             requestQueue,
@@ -74,7 +108,7 @@ export class SiteCrawler {
                 },
             ],
             failedRequestHandler: ({ request }: { request: Request }, error: Error) => {
-                onPage(errorResult(request, error.message));
+                report(errorResult(request, error.message));
             },
         };
 
@@ -103,15 +137,16 @@ export class SiteCrawler {
             const blockedBy = detectBotProtection(status, headers, $);
             if (blockedBy) {
                 // A block/challenge page says nothing about the real page, and its links aren't the site's.
-                onPage({
+                report({
                     ...errorResult(request, `Blocked by bot protection (${blockedBy}). Try another User-Agent, or ask the site owner to allowlist the crawler.`),
                     ...response,
                     indexabilityReason: 'Blocked',
                 });
                 return;
             }
+            const pageUrl = request.loadedUrl ?? request.url;
             const base = baseResult(request);
-            const seo = extractSeo($, request.loadedUrl ?? request.url, status, headers);
+            const seo = extractSeo($, pageUrl, status, headers);
             const redirectType = base.finalUrl
                 ? res.redirectedByHttp
                     ? 'HTTP Redirect'
@@ -119,8 +154,40 @@ export class SiteCrawler {
                 : /url\s*=/i.test(seo.metaRefresh)
                   ? 'Meta Refresh'
                   : '';
-            onPage({ ...base, redirectType, ...response, ...seo, error: null });
-            if (status === null || status < 400) await enqueueLinks({ strategy: 'same-hostname' });
+
+            const links = linkTargets(
+                $('a[href]')
+                    .map((_, el) => $(el).attr('href')!)
+                    .get(),
+                pageUrl,
+            );
+            // A link in the rendered page that the served HTML doesn't have was added by JavaScript.
+            const served = res.rawHrefs && new Set(Object.values(linkTargets(res.rawHrefs, pageUrl)).flat());
+            const jsOnly = (targets: string[]) => new Set(served ? targets.filter((t) => !served.has(t)) : []);
+            const jsInternal = jsOnly(links.internal);
+            const followed = status === null || status < 400;
+
+            report(
+                {
+                    ...base,
+                    redirectType,
+                    ...response,
+                    ...seo,
+                    uniqueJsOutlinks: jsInternal.size,
+                    uniqueExternalJsOutlinks: jsOnly(links.external).size,
+                    ...NOT_ANALYSED,
+                    error: null,
+                },
+                {
+                    isHtml200: status === 200 && /html/i.test(response.contentType ?? ''),
+                    // Same rule as enqueueing: a 4xx/5xx page's links aren't followed, so they don't count as inlinks.
+                    links: followed ? links.internal : [],
+                    jsLinks: jsInternal,
+                    // Only indexable pages are checked for near duplicates, as in Screaming Frog by default.
+                    signature: seo.indexable ? minhashSignature(contentText($)) : null,
+                },
+            );
+            if (followed) await enqueueLinks({ strategy: 'same-hostname' });
         };
 
         const { userAgent } = options;
@@ -161,15 +228,26 @@ export class SiteCrawler {
                                 .catch(() => 0);
                         // Resources still loading when the handler runs (after the load event) aren't counted.
                         const resourceSizes = await Promise.all((finishedRequests.get(page) ?? []).map(bodySize));
+                        const body = (await response?.body().catch(() => null)) ?? null;
+                        // Parse the served HTML with the browser's own parser, so no HTML library is needed in main.
+                        const rawHrefs = body
+                            ? await page
+                                  .evaluate((html) => {
+                                      const doc = new (globalThis as unknown as BrowserGlobals).DOMParser().parseFromString(html, 'text/html');
+                                      return Array.from(doc.querySelectorAll('a[href]'), (a) => a.getAttribute('href') ?? '');
+                                  }, body.toString('utf8'))
+                                  .catch(() => null)
+                            : null;
                         const pageResponse: PageResponse = {
                             status: response?.status() ?? null,
                             // allHeaders(), not headers(): the latter omits Set-Cookie.
                             headers: (await response?.allHeaders().catch(() => null)) ?? response?.headers() ?? {},
                             httpVersion,
-                            body: (await response?.body().catch(() => null)) ?? null,
+                            body,
                             transferredBytes: response ? await bodySize(response.request()) : null,
                             totalTransferredBytes: resourceSizes.reduce((a, b) => a + b, 0),
                             redirectedByHttp: !!response?.request().redirectedFrom(),
+                            rawHrefs,
                         };
                         await handlePage(request, pageResponse, $, enqueueLinks);
                     },
@@ -213,6 +291,7 @@ export class SiteCrawler {
                             totalTransferredBytes: transferred,
                             // No JavaScript runs in this mode, so any redirect was HTTP.
                             redirectedByHttp: true,
+                            rawHrefs: null,
                         };
                         await handlePage(request, pageResponse, $, enqueueLinks);
                     },
@@ -227,6 +306,7 @@ export class SiteCrawler {
             this.crawler = null;
             await requestQueue.drop().catch(() => {});
         }
+        return analyseCrawl(pages);
     }
 
     /** Graceful stop: in-flight requests finish, nothing new is started. */
@@ -356,7 +436,10 @@ function errorResult(request: Request, message: string): PageResult {
         uniqueInternalLinks: 0,
         externalLinks: 0,
         uniqueExternalLinks: 0,
+        uniqueJsOutlinks: 0,
+        uniqueExternalJsOutlinks: 0,
         imagesMissingAlt: 0,
+        ...NOT_ANALYSED,
         error: message.split('\n')[0],
     };
 }

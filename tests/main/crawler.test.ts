@@ -25,7 +25,8 @@ import { SiteCrawler } from '../../src/main/crawler';
  *   └─ localhost / example.org links: other hostnames, out of scope
  *
  * Unlinked: /slow (concurrency), /spa (JavaScript), /blocked and /challenge (bot protection),
- * /docs/guide/page (response headers, size and hash), /weight/a ─ /weight/b (transferred bytes).
+ * /docs/guide/page (response headers, size and hash), /weight/a ─ /weight/b (transferred bytes),
+ * /dup ─ /dup/1, /dup/2 (near duplicates of each other), /dup/3 (different text), /dup/noindex (copy of /dup/1).
  */
 const html = (body: string, head = '') => `<!doctype html><html><head>${head}</head><body>${body}</body></html>`;
 const links = (...paths: string[]) => paths.map((p) => `<a href="${p}">${p}</a>`).join('\n');
@@ -56,6 +57,9 @@ const WEIGHT_A_GZIP = gzipSync(WEIGHT_A_BODY);
 const WEIGHT_CSS = `body { color: #333; }\n${'/* padding */\n'.repeat(100)}`;
 // A valid 1x1 PNG, so the browser finishes loading it.
 const WEIGHT_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+
+const ARTICLE = Array.from({ length: 200 }, (_, i) => `This is sentence ${i} of the article.`).join(' ');
+const OTHER_ARTICLE = Array.from({ length: 200 }, (_, i) => `Another text, paragraph ${i * 3} here.`).join(' ');
 
 const routes: Record<string, Route> = {
     '/robots.txt': (_req, res) => {
@@ -97,6 +101,13 @@ const routes: Record<string, Route> = {
     '/blocked': page('<h1>Access Denied</h1>', '<title>Access Denied</title>', 403, { server: 'AkamaiGHost' }),
     '/challenge': page(`<div id="sec-if-cpt-container"></div>${links('/from-challenge')}`),
     '/from-challenge': page('<p>should never be crawled</p>'),
+
+    // Near duplicates: /dup/2 is /dup/1 with one word changed; /dup/noindex is an exact copy but isn't checked.
+    '/dup': page(links('/dup/1', '/dup/2', '/dup/3', '/dup/noindex', '/dup/1'), '<title>Dup hub</title>'),
+    '/dup/1': page(`<p>${ARTICLE}</p>${links('/dup')}`, '<title>One</title>'),
+    '/dup/2': page(`<p>${ARTICLE.replace('sentence 150', 'sentence changed')}</p>${links('/dup', '/dup/1')}`, '<title>Two</title>'),
+    '/dup/3': page(`<p>${OTHER_ARTICLE}</p>`, '<title>Three</title>'),
+    '/dup/noindex': page(`<p>${ARTICLE}</p>`, '<title>Copy</title><meta name="robots" content="noindex">'),
 
     // Response-level fields: headers the crawler reports, and a fixed body for size and hash.
     '/docs/guide/page': (_req, res) => {
@@ -171,9 +182,11 @@ const defaults: Omit<CrawlOptions, 'startUrl'> = { maxPages: 100, maxDepth: 10, 
 
 async function crawl(path: string, options: Partial<CrawlOptions> = {}, crawler = new SiteCrawler()) {
     const rows: PageResult[] = [];
-    await crawler.run({ ...defaults, startUrl: origin + path, ...options }, (r) => rows.push(r));
+    const analysis = await crawler.run({ ...defaults, startUrl: origin + path, ...options }, (r) => rows.push(r));
     const byPath = new Map(rows.map((r) => [new URL(r.url).pathname, r]));
-    return { rows, byPath, paths: [...byPath.keys()].sort() };
+    /** Post-crawl fields for a path. */
+    const analysed = (p: string) => analysis[byPath.get(p)!.url];
+    return { rows, byPath, paths: [...byPath.keys()].sort(), analysis, analysed };
 }
 
 describe('SiteCrawler (fast HTML mode)', () => {
@@ -266,6 +279,42 @@ describe('SiteCrawler (fast HTML mode)', () => {
         const { byPath } = await crawl('/docs/guide/page', { maxDepth: 0 });
         const size = Buffer.byteLength(DETAILS_BODY);
         expect(byPath.get('/docs/guide/page')).toMatchObject({ sizeBytes: size, transferredBytes: size, totalTransferredBytes: size });
+    });
+
+    it('sends rows without post-crawl fields, then returns inlinks and link scores for every page', async () => {
+        const { rows, analysis, analysed } = await crawl('/');
+        expect(rows.every((r) => r.inlinks === null && r.linkScore === null)).toBe(true);
+        expect(Object.keys(analysis).sort()).toEqual(rows.map((r) => r.url).sort());
+
+        expect(analysed('/')).toMatchObject({ inlinks: 0, uniqueInlinks: 0 });
+        expect(analysed('/a')).toMatchObject({ inlinks: 1, uniqueInlinks: 1, uniqueJsInlinks: 0 });
+        expect(analysed('/a/deep/deeper')).toMatchObject({ inlinks: 1, uniqueInlinks: 1 });
+        // Unlinked pages and failures are still in the analysis, with their own link counts.
+        expect(analysed('/broken')).toMatchObject({ uniqueInlinks: 1 });
+        // /a, /a/deep, /a/deep/deeper, /b, /xrobots and /redirect (-> /c) are the 200 HTML pages besides /.
+        expect(analysed('/a').percentOfTotal).toBeCloseTo((1 / 7) * 100, 2);
+
+        const scores = Object.values(analysis).map((a) => a.linkScore!);
+        expect(Math.max(...scores)).toBe(100);
+        expect(scores.every((s) => s >= 0 && s <= 100)).toBe(true);
+        // Deeper in a chain means more rank has flowed down to it.
+        expect(analysed('/a/deep/deeper').linkScore!).toBeGreaterThan(analysed('/').linkScore!);
+    });
+
+    it('finds near-duplicate pages after the crawl, skipping non-indexable ones', async () => {
+        const { analysed } = await crawl('/dup');
+        expect(analysed('/dup/1')).toMatchObject({ nearDuplicates: 1, closestNearDuplicate: `${origin}/dup/2` });
+        expect(analysed('/dup/1').closestNearDuplicateSimilarity!).toBeGreaterThanOrEqual(90);
+        expect(analysed('/dup/2')).toMatchObject({ nearDuplicates: 1, closestNearDuplicate: `${origin}/dup/1` });
+        expect(analysed('/dup/3')).toMatchObject({ nearDuplicates: 0, closestNearDuplicate: '' });
+        expect(analysed('/dup/noindex')).toMatchObject({ nearDuplicates: null, closestNearDuplicate: '' });
+        // /dup links to /dup/1 twice; /dup/2 links to it too.
+        expect(analysed('/dup/1')).toMatchObject({ inlinks: 3, uniqueInlinks: 2 });
+    });
+
+    it('reports no JS-only links in fast HTML mode', async () => {
+        const { byPath } = await crawl('/dup', { maxDepth: 0 });
+        expect(byPath.get('/dup')).toMatchObject({ uniqueJsOutlinks: 0, uniqueExternalJsOutlinks: 0 });
     });
 
     it('gives 404 rows their status text', async () => {
@@ -383,6 +432,17 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
         expect(byPath.get('/spa')).toMatchObject({ status: 200, title: 'Rendered title', h1: 'Hello', h1Count: 1 });
         expect(paths).toContain('/spa/child');
         expect(byPath.get('/spa/child')!.title).toBe('Child');
+    });
+
+    it('counts links that only exist after JavaScript as JS outlinks and JS inlinks', async () => {
+        const { byPath, analysed } = await crawl('/spa', { renderJs: true, concurrency: 2 });
+        expect(byPath.get('/spa')).toMatchObject({ uniqueJsOutlinks: 1, uniqueExternalJsOutlinks: 0 });
+        expect(analysed('/spa/child')).toMatchObject({ inlinks: 1, uniqueInlinks: 1, uniqueJsInlinks: 1 });
+
+        // Links in the served HTML aren't JS links in browser mode.
+        const plain = await crawl('/a', { renderJs: true, maxDepth: 1 });
+        expect(plain.byPath.get('/a')!.uniqueJsOutlinks).toBe(0);
+        expect(plain.analysed('/a/deep')).toMatchObject({ uniqueInlinks: 1, uniqueJsInlinks: 0 });
     });
 
     it('fast HTML mode does not see JavaScript-rendered content (for comparison)', async () => {
