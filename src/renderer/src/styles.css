@@ -1,23 +1,33 @@
+@import 'tailwindcss';
+
 /*
- * Theme tokens. Components use only these variables, so a theme is just a new set of values.
- * Dark mode follows the OS, and can be forced either way with <html data-theme="light|dark">.
+ * Theme tokens. Components use only these variables (directly, or as Tailwind colours via @theme below), so a theme
+ * is just a new set of values. Dark mode follows the OS, and can be forced either way with <html data-theme="…">.
  */
 :root {
-    --bg: #ffffff;
-    --panel: #f4f5f7;
-    --border: #d9dce1;
-    --text: #1d2129;
-    --muted: #6b7280;
-    --accent: #5aa832;
+    --bg: #eef2f7;
+    --panel: #ffffff;
+    --panel-2: #f5f7fb;
+    --border: #d6dde8;
+    --text: #0f172a;
+    --muted: #5b6b82;
+    --accent: #16a34a;
     --on-accent: #ffffff;
     --selected: #dbeafe;
-    --bad: #b42318;
+    --bad: #dc2626;
     --on-bad: #ffffff;
+    /* Tones for badges, filter cards and buttons. */
+    --info: #1d6fe0;
+    --good: #16a34a;
+    --warn: #b77900;
+    --violet: #7c3aed;
+    --neutral: #475569;
+    --glow: 0.25;
 
     --font: 'Segoe UI', system-ui, sans-serif;
     --font-mono: Consolas, 'Cascadia Mono', monospace;
-    --radius: 4px;
-    --radius-lg: 8px;
+    --radius: 6px;
+    --radius-lg: 10px;
 
     color-scheme: light;
     font-family: var(--font);
@@ -28,91 +38,147 @@
 /* The dark values appear twice: once for the OS preference, once for an explicit data-theme="dark". */
 @media (prefers-color-scheme: dark) {
     :root:not([data-theme='light']) {
-        --bg: #16181d;
-        --panel: #1f2229;
-        --border: #30343d;
-        --text: #e5e7eb;
-        --muted: #9ca3af;
-        --selected: #1e3a5f;
-        --bad: #f97066;
-        --on-bad: #16181d;
+        --bg: #060b16;
+        --panel: #0b1424;
+        --panel-2: #0f1b30;
+        --border: #1c2b45;
+        --text: #e5ecf6;
+        --muted: #8a9ab4;
+        --accent: #1fc27a;
+        --on-accent: #04130c;
+        --selected: #132f57;
+        --bad: #f0524f;
+        --on-bad: #060b16;
+        --info: #3b8cff;
+        --good: #22c55e;
+        --warn: #f5b400;
+        --violet: #a78bfa;
+        --neutral: #c3cddc;
+        --glow: 0.45;
         color-scheme: dark;
     }
 }
 :root[data-theme='dark'] {
-    --bg: #16181d;
-    --panel: #1f2229;
-    --border: #30343d;
-    --text: #e5e7eb;
-    --muted: #9ca3af;
-    --selected: #1e3a5f;
-    --bad: #f97066;
-    --on-bad: #16181d;
+    --bg: #060b16;
+    --panel: #0b1424;
+    --panel-2: #0f1b30;
+    --border: #1c2b45;
+    --text: #e5ecf6;
+    --muted: #8a9ab4;
+    --accent: #1fc27a;
+    --on-accent: #04130c;
+    --selected: #132f57;
+    --bad: #f0524f;
+    --on-bad: #060b16;
+    --info: #3b8cff;
+    --good: #22c55e;
+    --warn: #f5b400;
+    --violet: #a78bfa;
+    --neutral: #c3cddc;
+    --glow: 0.45;
     color-scheme: dark;
 }
 
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); }
-
-.app { display: flex; flex-direction: column; height: 100vh; }
-
-.toolbar, .filters, .statusbar {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 8px;
-    background: var(--panel);
-    border-bottom: 1px solid var(--border);
+/* The tokens as Tailwind colours: bg-surface, border-line, text-muted, text-info… `inline` keeps the var() references,
+ * so the classes follow the active theme. */
+@theme inline {
+    --color-canvas: var(--bg);
+    --color-surface: var(--panel);
+    --color-surface-2: var(--panel-2);
+    --color-line: var(--border);
+    --color-fg: var(--text);
+    --color-muted: var(--muted);
+    --color-accent: var(--accent);
+    --color-on-accent: var(--on-accent);
+    --color-selected: var(--selected);
+    --color-bad: var(--bad);
+    --color-info: var(--info);
+    --color-good: var(--good);
+    --color-warn: var(--warn);
+    --color-violet: var(--violet);
+    --color-neutral: var(--neutral);
+    --font-sans: var(--font);
+    --font-mono: var(--font-mono);
 }
-.toolbar label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
-.toolbar input[type='number'] { width: 70px; }
-.toolbar .url { flex: 1; min-width: 200px; }
 
-input, select, button {
-    font: inherit;
-    color: var(--text);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 4px 8px;
+/* A coloured halo, in the element's --tone colour (set by a tone-* class). */
+@utility glow {
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, var(--tone) 55%, transparent),
+        0 0 18px color-mix(in oklab, var(--tone) calc(var(--glow) * 100%), transparent);
 }
-button { cursor: pointer; }
-button:disabled { opacity: 0.5; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
-.filters { flex-wrap: wrap; gap: 4px; }
-.filters button.active { border-color: var(--accent); box-shadow: inset 0 -2px 0 var(--accent); }
-.filters .count { color: var(--muted); margin-left: 4px; }
-.filters .search { margin-left: auto; width: 240px; }
+@layer components {
+    /* One colour per meaning; everything tinted (pills, cards, buttons) reads it from --tone. */
+    .tone-info { --tone: var(--info); }
+    .tone-good { --tone: var(--good); }
+    .tone-bad { --tone: var(--bad); }
+    .tone-warn { --tone: var(--warn); }
+    .tone-violet { --tone: var(--violet); }
+    .tone-neutral { --tone: var(--neutral); }
 
-.table { flex: 1; overflow: auto; position: relative; }
-.row { display: grid; border-bottom: 1px solid var(--border); cursor: default; }
-.row:hover { background: var(--panel); }
-.row.selected { background: var(--selected); }
-.row.bad .cell:nth-child(2) { color: var(--bad); font-weight: 600; }
-.row.header { position: sticky; top: 0; z-index: 1; background: var(--panel); font-weight: 600; height: 30px; }
-.cell {
-    padding: 6px 8px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    border-right: 1px solid var(--border);
+    /* Status / indexability badge in the results table. */
+    .pill {
+        display: inline-flex;
+        align-items: center;
+        height: 22px;
+        padding: 0 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--tone);
+        background: color-mix(in oklab, var(--tone) 16%, transparent);
+        border: 1px solid color-mix(in oklab, var(--tone) 35%, transparent);
+    }
+
+    /* Toolbar buttons: tinted fill, coloured border and halo. */
+    .btn-tone {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 44px;
+        padding: 0 22px;
+        border-radius: var(--radius-lg);
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--text);
+        background: linear-gradient(180deg, color-mix(in oklab, var(--tone) 38%, var(--panel)), color-mix(in oklab, var(--tone) 22%, var(--panel)));
+        border: 1px solid color-mix(in oklab, var(--tone) 70%, transparent);
+        box-shadow: 0 0 16px color-mix(in oklab, var(--tone) calc(var(--glow) * 100%), transparent);
+        transition: filter 0.15s;
+    }
+    .btn-tone:hover:not(:disabled) { filter: brightness(1.15); }
 }
-.header .cell { cursor: pointer; user-select: none; }
 
-.details { height: 200px; overflow: auto; border-top: 1px solid var(--border); background: var(--panel); padding: 8px; }
-.details dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 4px 16px; margin: 0; }
-.details dl > div { display: flex; gap: 8px; }
-.details dt { color: var(--muted); min-width: 150px; }
-.details dd { margin: 0; word-break: break-all; }
+@layer base {
+    body { margin: 0; background: var(--bg); }
+    input, select, button {
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 4px 8px;
+    }
+    button { cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: default; }
 
-.statusbar { border-top: 1px solid var(--border); border-bottom: none; gap: 16px; color: var(--muted); }
-.statusbar .error { color: var(--bad); }
+    /* Always-visible, themed scrollbars: Chromium's default ones are overlay/near-invisible on the dark panels, which
+     * left no visible way to scroll the results table sideways. */
+    ::-webkit-scrollbar { width: 14px; height: 14px; }
+    ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: var(--panel-2); }
+    ::-webkit-scrollbar-thumb {
+        background: color-mix(in oklab, var(--muted) 55%, transparent);
+        border: 3px solid var(--panel-2);
+        border-radius: 7px;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+}
 
-.toolbar .toolbar-logo { width: 24px; height: 24px; flex: none; }
-.toolbar .crawl-url { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-.start-screen { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--panel); }
+/* Setup and crawling screens (plain CSS, themed by the same tokens). */
+@layer components {
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.start-screen { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--bg); }
 .start-card {
     display: flex;
     flex-direction: column;
@@ -122,7 +188,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
     height: 90%;
     overflow: auto;
     padding: 32px 10%;
-    background: var(--bg);
+    background: var(--panel);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     position: relative;
@@ -138,14 +204,14 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .start-card .error { color: var(--bad); }
 .start-card button.primary { padding: 8px; font-size: 15px; }
 .start-card .close { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; padding: 0; font-size: 20px; line-height: 1; border: none; background: none; color: var(--muted); }
-.start-card .close:hover { color: var(--text); background: var(--panel); }
+.start-card .close:hover { color: var(--text); background: var(--panel-2); }
 /* Start form: keep the fields to at most half the card width, centred. */
 form.start-card > :not(.close) { width: 100%; max-width: 50%; align-self: center; }
 
 /* Crawling screen: reuses the start-card layout, centred content. */
 .start-card.crawling { align-items: center; text-align: center; }
 .crawling .crawl-target { color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crawling .progress-bar { width: 100%; max-width: 420px; height: 6px; background: var(--panel); border-radius: 3px; overflow: hidden; }
+.crawling .progress-bar { width: 100%; max-width: 420px; height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
 .crawling .progress-bar > div { height: 100%; background: var(--accent); transition: width 0.3s ease; }
 .crawling .crawl-count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .crawling .crawl-hint { color: var(--muted); font-size: 12px; max-width: 420px; }
@@ -154,7 +220,7 @@ form.start-card > :not(.close) { width: 100%; max-width: 50%; align-self: center
     max-width: 560px;
     min-height: 34px;
     padding: 8px 12px;
-    background: var(--panel);
+    background: var(--panel-2);
     border-radius: var(--radius);
     font-family: var(--font-mono);
     font-size: 12px;
@@ -227,4 +293,5 @@ form.start-card > :not(.close) { width: 100%; max-width: 50%; align-self: center
 
 @media (prefers-reduced-motion: reduce) {
     .loader::before, .loader::after, .loader-ring { animation-duration: 4s; }
+}
 }

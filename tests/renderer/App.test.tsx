@@ -89,7 +89,7 @@ describe('App', () => {
         click('View results');
 
         const allTab = screen.getByRole('button', { name: /^All/ });
-        expect(allTab.textContent).toBe('All 3');
+        expect(allTab.textContent).toBe('All URLs 3');
         expect(screen.getByRole('button', { name: /4xx/ }).textContent).toContain('1');
 
         click('4xx / 5xx / Failed 1');
@@ -98,7 +98,7 @@ describe('App', () => {
 
         fireEvent.click(allTab);
         fireEvent.change(screen.getByPlaceholderText('Search URL or title…'), { target: { value: 'home' } });
-        expect(screen.getAllByText(/https:\/\/example\.com/, { selector: '.row:not(.header) .cell:first-child' })).toHaveLength(1);
+        expect(screen.getAllByText(/https:\/\/example\.com/, { selector: '.row:not(.header) .cell:nth-child(2)' })).toHaveLength(1);
     });
 
     it('selecting a row shows its details', async () => {
@@ -179,7 +179,7 @@ describe('App', () => {
         click('View results');
         click('New crawl');
         click('Close');
-        expect(screen.getByRole('button', { name: /^All/ }).textContent).toBe('All 3');
+        expect(screen.getByRole('button', { name: /^All/ }).textContent).toBe('All URLs 3');
         expect(api.startCrawl).toHaveBeenCalledOnce();
     });
 

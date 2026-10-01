@@ -23,18 +23,18 @@ describe('ResultsTable', () => {
 
     it('clicking a header sorts ascending, then descending, then back to crawl order', () => {
         const { container } = render(<ResultsTable rows={rows} selected={null} onSelect={() => {}} />);
-        const header = screen.getByText('Words');
+        const header = screen.getByRole('columnheader', { name: 'Words' });
 
         fireEvent.click(header);
-        expect(header.textContent).toBe('Words ▲');
+        expect(header.getAttribute('aria-sort')).toBe('ascending');
         expect(addresses(container)).toEqual(['https://example.com/c', 'https://example.com/a', 'https://example.com/b']);
 
         fireEvent.click(header);
-        expect(header.textContent).toBe('Words ▼');
+        expect(header.getAttribute('aria-sort')).toBe('descending');
         expect(addresses(container)).toEqual(['https://example.com/b', 'https://example.com/a', 'https://example.com/c']);
 
         fireEvent.click(header);
-        expect(header.textContent).toBe('Words');
+        expect(header.getAttribute('aria-sort')).toBe('none');
         expect(addresses(container)).toEqual(['https://example.com/b', 'https://example.com/c', 'https://example.com/a']);
     });
 

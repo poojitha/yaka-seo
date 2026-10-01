@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { CircleCheck, CircleStop, CircleX, Download, Link2, LoaderCircle, Plus, Search, Square } from 'lucide-react';
 import type { CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
 import { FILTERS } from './filters';
+import { FilterCards } from './FilterCards';
 import { ResultsTable } from './ResultsTable';
 import { CrawlingScreen } from './CrawlingScreen';
 import { StartScreen } from './StartScreen';
@@ -8,6 +10,24 @@ import logo from './assets/logo.png';
 
 /** Electron wraps rejections from main as "Error invoking remote method 'x': Error: msg"; keep just msg. */
 const ipcMessage = (err: unknown) => (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']*': (Error: )?/, '');
+
+/** 84000 → "1m 24s". */
+function formatElapsed(ms: number) {
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h ? `${h}h ${m}m` : m ? `${m}m ${s % 60}s` : `${s % 60}s`;
+}
+
+/** Status-bar icon and colour for each crawl state. */
+const STATUS_LOOK = {
+    idle: { icon: LoaderCircle, className: 'text-muted' },
+    running: { icon: LoaderCircle, className: 'animate-spin text-info' },
+    stopping: { icon: LoaderCircle, className: 'animate-spin text-warn' },
+    finished: { icon: CircleCheck, className: 'text-good' },
+    stopped: { icon: CircleStop, className: 'text-warn' },
+    error: { icon: CircleX, className: 'text-bad' },
+} as const;
 
 export function App() {
     // Kept here (not in StartScreen) so "New crawl" reopens the setup screen with the last settings.
@@ -20,6 +40,10 @@ export function App() {
     const [search, setSearch] = useState('');
     const [selected, setSelected] = useState<PageResult | null>(null);
     const [exportError, setExportError] = useState('');
+    // For the elapsed time in the status bar.
+    const [startedAt, setStartedAt] = useState<number | null>(null);
+    const [endedAt, setEndedAt] = useState<number | null>(null);
+    const [now, setNow] = useState(() => Date.now());
 
     useEffect(() => {
         const offResults = window.api.onResults((rows) => setResults((prev) => prev.concat(rows)));
@@ -38,6 +62,16 @@ export function App() {
     }, []);
 
     const running = progress.status === 'running' || progress.status === 'stopping';
+    const done = progress.status === 'finished' || progress.status === 'stopped' || progress.status === 'error';
+
+    useEffect(() => {
+        if (!running) return;
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [running]);
+    useEffect(() => {
+        if (done) setEndedAt((t) => t ?? Date.now());
+    }, [done]);
 
     const start = async (opts: CrawlOptions) => {
         setOptions(opts);
@@ -47,6 +81,9 @@ export function App() {
         setSearch('');
         setProgress({ status: 'idle', crawled: 0 });
         setExportError('');
+        setStartedAt(Date.now());
+        setNow(Date.now());
+        setEndedAt(null);
         setScreen('crawling');
         try {
             await window.api.startCrawl(opts);
@@ -97,54 +134,102 @@ export function App() {
         );
     }
 
+    const percent = done ? 100 : Math.min(100, Math.round((results.length / Math.max(1, options.maxPages)) * 100));
+    const elapsed = startedAt === null ? null : Math.max(0, (endedAt ?? now) - startedAt);
+    const { icon: StatusIcon, className: statusClass } = STATUS_LOOK[progress.status];
+
     return (
-        <div className="app">
-            <div className="toolbar">
-                <img className="toolbar-logo" src={logo} alt="Yaka|SEO" />
-                <span className="crawl-url" title={options.startUrl}>{options.startUrl}</span>
+        <div className="app flex h-screen flex-col gap-3 bg-canvas p-3 text-fg">
+            <div className="toolbar flex items-center gap-3">
+                <img className="toolbar-logo size-9 shrink-0" src={logo} alt="Yaka|SEO" />
+                <div className="tone-info glow flex h-11 min-w-0 flex-1 items-center gap-3 rounded-[var(--radius-lg)] bg-surface px-4">
+                    <Link2 size={20} className="shrink-0 text-info" aria-hidden />
+                    <span className="crawl-url truncate text-[15px]" title={options.startUrl}>
+                        {options.startUrl}
+                    </span>
+                </div>
                 {running ? (
-                    <button type="button" onClick={stop} disabled={progress.status === 'stopping'}>
+                    <button type="button" className="btn-tone tone-good" onClick={stop} disabled={progress.status === 'stopping'}>
+                        <Square size={16} fill="currentColor" aria-hidden />
                         {progress.status === 'stopping' ? 'Stopping…' : 'Stop'}
                     </button>
                 ) : (
-                    <button type="button" className="primary" onClick={() => setScreen('setup')}>
+                    <button type="button" className="btn-tone tone-good" onClick={() => setScreen('setup')}>
+                        <Plus size={18} aria-hidden />
                         New crawl
                     </button>
                 )}
-                <button type="button" onClick={exportCsv} disabled={visible.length === 0}>
+                <button type="button" className="btn-tone tone-info" onClick={exportCsv} disabled={visible.length === 0}>
+                    <Download size={18} aria-hidden />
                     Export CSV
                 </button>
             </div>
 
-            <div className="filters">
-                {FILTERS.map((f) => (
-                    <button key={f.id} className={f.id === filterId ? 'active' : ''} onClick={() => setFilterId(f.id)}>
-                        {f.label} <span className="count">{counts[f.id]}</span>
-                    </button>
-                ))}
-                <input className="search" placeholder="Search URL or title…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <FilterCards counts={counts} active={filterId} onSelect={setFilterId} />
+
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface">
+                <div className="flex items-center gap-3 px-4 py-3">
+                    <span className="text-lg font-semibold tabular-nums">{visible.length} URLs</span>
+                    <select
+                        aria-label="Issue filter"
+                        className="h-9 rounded-[var(--radius)] border-line bg-surface-2 px-3"
+                        value={filterId}
+                        onChange={(e) => setFilterId(e.target.value)}
+                    >
+                        {FILTERS.map((f) => (
+                            <option key={f.id} value={f.id}>
+                                {f.id === 'all' ? 'All issues' : `${f.label} (${counts[f.id]})`}
+                            </option>
+                        ))}
+                    </select>
+                    <div className="relative ml-auto w-80">
+                        <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" aria-hidden />
+                        <input
+                            className="search h-9 w-full rounded-[var(--radius)] border-line bg-surface-2 pr-3 pl-9"
+                            placeholder="Search URL or title…"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                        />
+                    </div>
+                </div>
+                <ResultsTable rows={visible} selected={selected} onSelect={setSelected} />
             </div>
 
-            <ResultsTable rows={visible} selected={selected} onSelect={setSelected} />
-
             {selected && (
-                <div className="details">
-                    <dl>
+                <div className="details h-52 shrink-0 overflow-auto rounded-[var(--radius-lg)] border border-line bg-surface p-4">
+                    <dl className="m-0 grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-x-4 gap-y-1">
                         {Object.entries(selected).map(([k, v]) => (
-                            <div key={k}>
-                                <dt>{k}</dt>
-                                <dd>{String(v ?? '')}</dd>
+                            <div key={k} className="flex gap-2">
+                                <dt className="min-w-[150px] text-muted">{k}</dt>
+                                <dd className="m-0 break-all">{String(v ?? '')}</dd>
                             </div>
                         ))}
                     </dl>
                 </div>
             )}
 
-            <div className="statusbar">
-                <span>{progress.status.toUpperCase()}</span>
-                <span>{results.length} URLs crawled</span>
-                {progress.message && <span className="error">{progress.message}</span>}
-                {exportError && <span className="error">{exportError}</span>}
+            <div className="statusbar flex items-center gap-4 rounded-[var(--radius-lg)] border border-line bg-surface px-4 py-3 text-muted">
+                <StatusIcon size={26} strokeWidth={2.5} className={`shrink-0 ${statusClass}`} aria-hidden />
+                <span className={`font-semibold ${statusClass.replace('animate-spin', '')}`}>{progress.status.toUpperCase()}</span>
+                <span className="h-5 border-l border-line" />
+                <span className="text-fg">{results.length} URLs crawled</span>
+                <span className="h-5 border-l border-line" />
+                <span className="truncate">{options.startUrl}</span>
+                {progress.message && <span className="error text-bad">{progress.message}</span>}
+                {exportError && <span className="error text-bad">{exportError}</span>}
+                <span className="ml-auto flex shrink-0 items-center gap-4">
+                    {elapsed !== null && <span>Elapsed: {formatElapsed(elapsed)}</span>}
+                    <span className="h-5 border-l border-line" />
+                    <span className="tabular-nums text-fg">
+                        {results.length} / {options.maxPages} ({percent}%)
+                    </span>
+                    <span className="h-2.5 w-64 overflow-hidden rounded-full bg-surface-2">
+                        <span
+                            className="tone-good glow block h-full rounded-full bg-good transition-[width] duration-300"
+                            style={{ width: `${percent}%` }}
+                        />
+                    </span>
+                </span>
             </div>
         </div>
     );

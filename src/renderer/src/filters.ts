@@ -4,7 +4,7 @@ const isHtml = (r: PageResult) => r.error === null && (r.contentType ?? '').incl
 
 /** Issue filters shown as tabs above the results table. */
 export const FILTERS: { id: string; label: string; test: (r: PageResult) => boolean }[] = [
-    { id: 'all', label: 'All', test: () => true },
+    { id: 'all', label: 'All URLs', test: () => true },
     { id: 'errors', label: '4xx / 5xx / Failed', test: (r) => r.error !== null || (r.status ?? 0) >= 400 },
     { id: 'redirects', label: 'Redirected', test: (r) => r.redirectUrl !== null },
     { id: 'noindex', label: 'Non-indexable', test: (r) => !r.indexable },

@@ -44,7 +44,7 @@ Enter a URL and Yaka|SEO crawls the site. It records each page's status code, ti
 | Desktop shell | [Electron](https://www.electronjs.org/) |
 | Build tooling | [electron-vite](https://electron-vite.org/) (Vite 7) |
 | Language | TypeScript 7 |
-| UI | React 19 |
+| UI | React 19, [Tailwind CSS](https://tailwindcss.com/) 4, [Lucide](https://lucide.dev/) icons (`lucide-react`) |
 | Crawling | [Crawlee](https://crawlee.dev/) 3 (`CheerioCrawler`, `PlaywrightCrawler`, `RequestQueue`) |
 | JS rendering | [Playwright](https://playwright.dev/) (Chromium) |
 | HTML parsing | Cheerio (the version bundled with Crawlee) |
