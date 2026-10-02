@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CircleCheck, CircleStop, CircleX, Download, LayoutDashboard, Link2, LoaderCircle, Plus, Search, Square, Table2 } from 'lucide-react';
 import type { CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
-import { FILTERS } from './filters';
+import { FILTERS, filterContext } from './filters';
 import { Dashboard } from './Dashboard';
 import { FilterCards } from './FilterCards';
 import { ResultsTable } from './ResultsTable';
@@ -115,13 +115,14 @@ export function App() {
         }
     };
 
-    const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.id, results.filter(f.test).length])), [results]);
+    const ctx = useMemo(() => filterContext(results), [results]);
+    const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.id, results.filter((r) => f.test(r, ctx)).length])), [results, ctx]);
 
     const visible = useMemo(() => {
         const filter = FILTERS.find((f) => f.id === filterId)!;
         const q = search.toLowerCase();
-        return results.filter((r) => filter.test(r) && (!q || r.url.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)));
-    }, [results, filterId, search]);
+        return results.filter((r) => filter.test(r, ctx) && (!q || r.url.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)));
+    }, [results, ctx, filterId, search]);
 
     if (screen === 'setup') return <StartScreen initial={options} onStart={start} onClose={() => setScreen('results')} />;
     if (screen === 'crawling') {
@@ -183,9 +184,10 @@ export function App() {
             {view === 'dashboard' ? (
                 <Dashboard
                     rows={results}
-                    onOpenFilter={(id) => {
+                    renderJs={options.renderJs}
+                    onOpen={(id, query = '') => {
                         setFilterId(id);
-                        setSearch('');
+                        setSearch(query);
                         setView('table');
                     }}
                 />

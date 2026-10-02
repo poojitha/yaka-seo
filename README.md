@@ -34,7 +34,14 @@ Enter a URL and Yaka|SEO crawls the site. It records each page's status code, ti
 - **Issue filters:** errors, redirects, non-indexable, missing or long titles, missing or long meta descriptions, missing or multiple H1s, thin content, and images missing alt text.
 - **Results table:** sortable and searchable, and it only renders visible rows, so it stays fast on large crawls.
 - **Details panel** showing every field for the selected URL.
-- **Dashboard** (toolbar button, next to Stop / New crawl): headline numbers (URLs, % indexable, errors, average response time, page weight, CO2) and charts for status codes, indexability, top issues, crawl depth, response time, carbon rating and content types, plus the top pages by link score and the slowest pages. Clicking an issue opens the table filtered to it.
+- **Dashboard** (toolbar button, next to Stop / New crawl). Clicking an issue, band or section opens the table filtered to it.
+  - **Site health** (0–100): the share of URLs with no error-level issue, with the number of URLs that have errors, warnings and notices. Every issue filter has a severity (`filters.ts`).
+  - **Issues by severity**: every issue found, grouped into errors, warnings and notices.
+  - **Crawlability & indexing**: status codes, indexability, redirect health (types, chains, loops, redirects to an error), canonical health (self-referencing, canonicalised, missing, pointing at a non-200 URL), crawl depth, content types.
+  - **Content**: duplicates (exact by hash, near duplicates, duplicate titles / descriptions / H1s across indexable pages), title and description fit (missing / too short / good / too wide), word count, readability, freshness (`Last-Modified` age).
+  - **Site structure**: sections by first folder (URLs, errors, non-indexable, response time), internal linking (distinct linking pages, weakly linked pages), JavaScript dependency (JS mode only), top pages by link score.
+  - **Performance, sustainability & setup**: response time, page weight and compression, carbon rating, slowest pages, and a technical checklist (HTTPS, HTTP/2+, `lang`, canonical tags, compression, cookies, AMP, mobile alternates).
+  - The issue dropdown above the table includes the dashboard-only checks (duplicates, redirect chains, canonicals, short titles, slow pages…), which don't get a filter card.
 - **CSV export** of the current filtered view. The file includes a UTF-8 BOM so Excel reads it correctly.
 - **Light and dark theme** that follows your OS setting.
 

@@ -44,7 +44,7 @@ interface Props {
 export function FilterCards({ counts, active, onSelect }: Props) {
     return (
         <div className="grid shrink-0 grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-2 xl:grid-cols-8">
-            {FILTERS.map((f) => {
+            {FILTERS.filter((f) => f.card !== false).map((f) => {
                 const { icon: Icon, tone } = LOOK[f.id] ?? { icon: FileText, tone: 'neutral' };
                 const isActive = f.id === active;
                 return (
