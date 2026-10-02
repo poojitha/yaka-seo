@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CircleCheck, CircleStop, CircleX, Download, Link2, LoaderCircle, Plus, Search, Square } from 'lucide-react';
+import { CircleCheck, CircleStop, CircleX, Download, LayoutDashboard, Link2, LoaderCircle, Plus, Search, Square, Table2 } from 'lucide-react';
 import type { CrawlOptions, CrawlProgress, PageResult } from '@shared/types';
 import { FILTERS } from './filters';
+import { Dashboard } from './Dashboard';
 import { FilterCards } from './FilterCards';
 import { ResultsTable } from './ResultsTable';
 import { CrawlingScreen } from './CrawlingScreen';
@@ -33,6 +34,8 @@ export function App() {
     // Kept here (not in StartScreen) so "New crawl" reopens the setup screen with the last settings.
     const [options, setOptions] = useState<CrawlOptions>({ startUrl: 'https://', maxPages: 500, maxDepth: 10, concurrency: 10, renderJs: true, userAgent: '' });
     const [screen, setScreen] = useState<'setup' | 'crawling' | 'results'>('setup');
+    /** Results screen: the URL table, or the summary dashboard. */
+    const [view, setView] = useState<'table' | 'dashboard'>('table');
 
     const [results, setResults] = useState<PageResult[]>([]);
     const [progress, setProgress] = useState<CrawlProgress>({ status: 'idle', crawled: 0 });
@@ -79,6 +82,7 @@ export function App() {
         setSelected(null);
         setFilterId('all');
         setSearch('');
+        setView('table');
         setProgress({ status: 'idle', crawled: 0 });
         setExportError('');
         setStartedAt(Date.now());
@@ -159,53 +163,78 @@ export function App() {
                         New crawl
                     </button>
                 )}
+                {view === 'table' ? (
+                    <button type="button" className="btn-tone tone-violet" onClick={() => setView('dashboard')}>
+                        <LayoutDashboard size={18} aria-hidden />
+                        Dashboard
+                    </button>
+                ) : (
+                    <button type="button" className="btn-tone tone-violet" onClick={() => setView('table')}>
+                        <Table2 size={18} aria-hidden />
+                        Results
+                    </button>
+                )}
                 <button type="button" className="btn-tone tone-info" onClick={exportCsv} disabled={visible.length === 0}>
                     <Download size={18} aria-hidden />
                     Export CSV
                 </button>
             </div>
 
-            <FilterCards counts={counts} active={filterId} onSelect={setFilterId} />
+            {view === 'dashboard' ? (
+                <Dashboard
+                    rows={results}
+                    onOpenFilter={(id) => {
+                        setFilterId(id);
+                        setSearch('');
+                        setView('table');
+                    }}
+                />
+            ) : (
+                <>
+                    <FilterCards counts={counts} active={filterId} onSelect={setFilterId} />
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface">
-                <div className="flex items-center gap-3 px-4 py-3">
-                    <span className="text-lg font-semibold tabular-nums">{visible.length} URLs</span>
-                    <select
-                        aria-label="Issue filter"
-                        className="h-9 rounded-[var(--radius)] border-line bg-surface-2 px-3"
-                        value={filterId}
-                        onChange={(e) => setFilterId(e.target.value)}
-                    >
-                        {FILTERS.map((f) => (
-                            <option key={f.id} value={f.id}>
-                                {f.id === 'all' ? 'All issues' : `${f.label} (${counts[f.id]})`}
-                            </option>
-                        ))}
-                    </select>
-                    <div className="relative ml-auto w-80">
-                        <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" aria-hidden />
-                        <input
-                            className="search h-9 w-full rounded-[var(--radius)] border-line bg-surface-2 pr-3 pl-9"
-                            placeholder="Search URL or title…"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                        />
-                    </div>
-                </div>
-                <ResultsTable rows={visible} selected={selected} onSelect={setSelected} />
-            </div>
-
-            {selected && (
-                <div className="details h-52 shrink-0 overflow-auto rounded-[var(--radius-lg)] border border-line bg-surface p-4">
-                    <dl className="m-0 grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-x-4 gap-y-1">
-                        {Object.entries(selected).map(([k, v]) => (
-                            <div key={k} className="flex gap-2">
-                                <dt className="min-w-[150px] text-muted">{k}</dt>
-                                <dd className="m-0 break-all">{String(v ?? '')}</dd>
+                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface">
+                        <div className="flex items-center gap-3 px-4 py-3">
+                            <span className="text-lg font-semibold tabular-nums">{visible.length} URLs</span>
+                            <select
+                                aria-label="Issue filter"
+                                className="h-9 rounded-[var(--radius)] border-line bg-surface-2 px-3"
+                                value={filterId}
+                                onChange={(e) => setFilterId(e.target.value)}
+                            >
+                                {FILTERS.map((f) => (
+                                    <option key={f.id} value={f.id}>
+                                        {f.id === 'all' ? 'All issues' : `${f.label} (${counts[f.id]})`}
+                                    </option>
+                                ))}
+                            </select>
+                            <div className="relative ml-auto w-80">
+                                <Search size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" aria-hidden />
+                                <input
+                                    className="search h-9 w-full rounded-[var(--radius)] border-line bg-surface-2 pr-3 pl-9"
+                                    placeholder="Search URL or title…"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                />
                             </div>
-                        ))}
-                    </dl>
-                </div>
+                        </div>
+                        <ResultsTable rows={visible} selected={selected} onSelect={setSelected} />
+                    </div>
+
+                    {selected && (
+                        <div className="details h-52 shrink-0 overflow-auto rounded-[var(--radius-lg)] border border-line bg-surface p-4">
+                            <dl className="m-0 grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-x-4 gap-y-1">
+                                {Object.entries(selected).map(([k, v]) => (
+                                    <div key={k} className="flex gap-2">
+                                        <dt className="min-w-[150px] text-muted">{k}</dt>
+                                        <dd className="m-0 break-all">{String(v ?? '')}</dd>
+                                    </div>
+                                ))}
+                            </dl>
+                        </div>
+                    )}
+
+                </>
             )}
 
             <div className="statusbar flex items-center gap-4 rounded-[var(--radius-lg)] border border-line bg-surface px-4 py-3 text-muted">

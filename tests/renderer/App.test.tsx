@@ -101,6 +101,29 @@ describe('App', () => {
         expect(screen.getAllByText(/https:\/\/example\.com/, { selector: '.row:not(.header) .cell:nth-child(2)' })).toHaveLength(1);
     });
 
+    it('Dashboard summarises the crawl, and clicking an issue opens the table filtered to it', async () => {
+        render(<App />);
+        await startCrawl();
+        act(() => {
+            emitResults(pages);
+            emitProgress({ status: 'finished', crawled: 3 });
+        });
+        click('View results');
+        click('Dashboard');
+
+        expect(screen.getByRole('heading', { name: 'Status codes' })).toBeTruthy();
+        expect(screen.getByText('2xx Success')).toBeTruthy();
+        expect(screen.getByText('4xx Client error')).toBeTruthy();
+        // The URL table is replaced while the dashboard is shown.
+        expect(screen.queryByPlaceholderText('Search URL or title…')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: /^Title missing/ }));
+        expect(screen.getByRole('button', { name: 'Dashboard' })).toBeTruthy();
+        expect(screen.getAllByText(/https:\/\/example\.com/, { selector: '.row:not(.header) .cell:nth-child(2)' }).map((c) => c.textContent)).toEqual([
+            'https://example.com/no-title',
+        ]);
+    });
+
     it('selecting a row shows its details', async () => {
         render(<App />);
         await startCrawl();

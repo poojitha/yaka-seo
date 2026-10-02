@@ -34,6 +34,7 @@ Enter a URL and Yaka|SEO crawls the site. It records each page's status code, ti
 - **Issue filters:** errors, redirects, non-indexable, missing or long titles, missing or long meta descriptions, missing or multiple H1s, thin content, and images missing alt text.
 - **Results table:** sortable and searchable, and it only renders visible rows, so it stays fast on large crawls.
 - **Details panel** showing every field for the selected URL.
+- **Dashboard** (toolbar button, next to Stop / New crawl): headline numbers (URLs, % indexable, errors, average response time, page weight, CO2) and charts for status codes, indexability, top issues, crawl depth, response time, carbon rating and content types, plus the top pages by link score and the slowest pages. Clicking an issue opens the table filtered to it.
 - **CSV export** of the current filtered view. The file includes a UTF-8 BOM so Excel reads it correctly.
 - **Light and dark theme** that follows your OS setting.
 
