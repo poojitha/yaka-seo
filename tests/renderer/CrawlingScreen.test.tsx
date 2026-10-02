@@ -6,6 +6,7 @@ import { CrawlingScreen } from '../../src/renderer/src/CrawlingScreen';
 const setup = (progress: CrawlProgress, { currentUrl = '', crawled = 0, maxPages = 100 } = {}) => {
     const onStop = vi.fn();
     const onContinue = vi.fn();
+    const onClose = vi.fn();
     const { container } = render(
         <CrawlingScreen
             startUrl="https://example.com/"
@@ -15,10 +16,11 @@ const setup = (progress: CrawlProgress, { currentUrl = '', crawled = 0, maxPages
             crawled={crawled}
             onStop={onStop}
             onContinue={onContinue}
+            onClose={onClose}
         />,
     );
     const bar = container.querySelector<HTMLElement>('.progress-bar > div')!;
-    return { onStop, onContinue, container, bar };
+    return { onStop, onContinue, onClose, container, bar };
 };
 
 describe('CrawlingScreen', () => {
@@ -88,5 +90,12 @@ describe('CrawlingScreen', () => {
         expect(container.querySelector('.loader.fail')).toBeTruthy();
         expect(screen.getByText('Browser crashed')).toBeTruthy();
         expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    });
+
+    it('the close button calls onClose, and is there while running and when done', () => {
+        const { onClose, onStop } = setup({ status: 'running', crawled: 3 }, { crawled: 3 });
+        fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(onStop).not.toHaveBeenCalled();
     });
 });

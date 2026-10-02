@@ -79,6 +79,15 @@ describe('App', () => {
         expect(screen.getByRole('button', { name: 'Stopping…' })).toBeTruthy();
     });
 
+    it('closing the crawling screen after the crawl finished does not stop anything', async () => {
+        render(<App />);
+        await startCrawl();
+        act(() => emitProgress({ status: 'finished', crawled: 0 }));
+        await act(async () => click('Close'));
+        expect(api.stopCrawl).not.toHaveBeenCalled();
+        expect(screen.getByText('Export CSV')).toBeTruthy();
+    });
+
     it('View results shows the results table, with filters, counts and search', async () => {
         render(<App />);
         await startCrawl();

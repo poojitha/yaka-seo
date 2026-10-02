@@ -333,7 +333,7 @@ export function Dashboard({ rows, renderJs, onOpen }: Props) {
     const s = useStats(rows);
 
     if (rows.length === 0) {
-        return <div className="flex flex-1 items-center justify-center rounded-[var(--radius-lg)] border border-line bg-surface text-muted">No URLs crawled yet.</div>;
+        return <div className="flex flex-1 items-center justify-center glass rounded-[var(--radius-lg)] text-muted">No URLs crawled yet.</div>;
     }
 
     const healthTone: Tone = s.health >= 80 ? 'good' : s.health >= 50 ? 'warn' : 'bad';
@@ -342,7 +342,7 @@ export function Dashboard({ rows, renderJs, onOpen }: Props) {
     const grid = 'grid shrink-0 grid-flow-row-dense grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3';
 
     return (
-        <div className="dashboard flex min-h-0 flex-1 flex-col gap-3 overflow-auto pr-1">
+        <div className="dashboard glass-backdrop flex min-h-0 flex-1 flex-col gap-3 overflow-auto pr-1">
             <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3">
                 <HealthTile score={s.health} tone={healthTone} word={healthWord} counts={s.severityCounts} onOpen={onOpen} />
                 <StatTile icon={Globe} label="URLs crawled" value={fmt(s.total)} detail={`${fmt(s.htmlCount)} HTML pages`} />
@@ -514,7 +514,7 @@ function HealthTile({
     onOpen: (filterId: string) => void;
 }) {
     return (
-        <div className={`tone-${tone} rounded-[var(--radius-lg)] border border-line bg-surface px-4 py-3`}>
+        <div className={`tone-${tone} glass rounded-[var(--radius-lg)] px-4 py-3`}>
             <div className="flex items-center gap-2 text-muted">
                 <HeartPulse size={16} aria-hidden />
                 <span className="text-[13px]">Site health</span>
@@ -559,9 +559,9 @@ function StatTile({ icon: Icon, label, value, detail, meter, onClick }: { icon: 
             <div className="mt-1 text-[12px] text-muted">{detail}</div>
         </>
     );
-    const box = 'rounded-[var(--radius-lg)] border border-line bg-surface px-4 py-3 text-left';
+    const box = 'glass rounded-[var(--radius-lg)] px-4 py-3 text-left';
     return onClick ? (
-        <button type="button" className={`${box} flex flex-col justify-start hover:border-info/60 hover:bg-surface-2`} onClick={onClick}>
+        <button type="button" className={`${box} flex flex-col justify-start hover:border-info/60 hover:brightness-110`} onClick={onClick}>
             {body}
         </button>
     ) : (
@@ -571,7 +571,7 @@ function StatTile({ icon: Icon, label, value, detail, meter, onClick }: { icon: 
 
 function Panel({ title, subtitle, wide, children }: { title: string; subtitle: string; wide?: boolean; children: ReactNode }) {
     return (
-        <section className={`flex min-h-[230px] shrink-0 flex-col rounded-[var(--radius-lg)] border border-line bg-surface px-4 py-3 ${wide ? 'lg:col-span-2' : ''}`}>
+        <section className={`flex min-h-[230px] shrink-0 flex-col glass rounded-[var(--radius-lg)] px-4 py-3 ${wide ? 'lg:col-span-2' : ''}`}>
             <h3 className="m-0 text-[15px] font-semibold text-fg">{title}</h3>
             <p className="m-0 mb-3 text-[12px] text-muted">{subtitle}</p>
             <div className="flex min-h-0 flex-1 flex-col">{children}</div>
