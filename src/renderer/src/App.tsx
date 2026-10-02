@@ -135,6 +135,9 @@ export function App() {
                 crawled={results.length}
                 onStop={stop}
                 onContinue={() => setScreen('results')}
+                onClose={() => {
+                    setScreen('results');
+                }}
             />
         );
     }
