@@ -227,12 +227,13 @@ export function App() {
                     </div>
 
                     {selected && (
-                        <div className="details h-52 shrink-0 overflow-auto rounded-[var(--radius-lg)] border border-line bg-surface p-4">
-                            <dl className="m-0 grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-x-4 gap-y-1">
+                        <div className="details h-52 shrink-0 overflow-auto rounded-[var(--radius-lg)] border border-line bg-surface">
+                            {/* One field per row (name | value), striped by row. */}
+                            <dl className="m-0">
                                 {Object.entries(selected).map(([k, v]) => (
-                                    <div key={k} className="flex gap-2">
-                                        <dt className="min-w-[150px] text-muted">{k}</dt>
-                                        <dd className="m-0 break-all">{String(v ?? '')}</dd>
+                                    <div key={k} className="flex border-b border-line bg-surface last:border-b-0 even:bg-surface-2">
+                                        <dt className="w-[200px] shrink-0 border-r border-line px-3 py-1.5 text-muted">{k}</dt>
+                                        <dd className="m-0 min-w-0 break-all px-3 py-1.5">{String(v ?? '')}</dd>
                                     </div>
                                 ))}
                             </dl>
