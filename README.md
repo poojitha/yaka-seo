@@ -113,8 +113,9 @@ The build itself uses esbuild, which does **not** type-check, so run this before
 ### Tests
 
 ```bash
-npm test             # run everything once (~25 s)
+npm test             # unit tests once (~25 s)
 npm run test:watch   # re-run on change
+npm run test:e2e     # crawl the test site in both modes (~40 s)
 npx vitest run --project renderer   # only the React tests (fast)
 ```
 
@@ -123,6 +124,15 @@ Tests use [Vitest](https://vitest.dev/) and live in `tests/`, which mirrors `src
 - **renderer** (jsdom + Testing Library): the filters, the start and crawling screens, the results table and the full app flow, with `window.api` mocked.
 
 Shared test data (`makeResult()`) is in `tests/fixtures.ts`.
+
+#### The test site
+
+`testsite/site.ts` is a local website of about 95 URLs, each with a known SEO problem (or none): status codes, redirect chains and loops, noindex and canonicals, titles, descriptions, headings, duplicates, thin and hard-to-read text, JS-only links, page weight, bot-protection pages. Each case declares the issue filters it should match, per crawl mode.
+
+- `npm run test:e2e` (the **e2e** Vitest project, not part of `npm test`) crawls it in both modes, applies the renderer's filters to the rows plus the post-crawl analysis, and fails on any URL whose filters aren't **exactly** the expected ones. That catches missed issues and false positives alike.
+- `npm run testsite` serves it on `http://127.0.0.1:4173/` (`PORT=` to change) for crawling in the app, and prints how many URLs each filter card should show.
+
+To add a case, add an entry to `CASES` with a `respond` handler and its `filters`; it's linked from its section index and `/sitemap` automatically.
 
 ### 4. Running the crawler without Electron (headless / scripting)
 
@@ -158,7 +168,9 @@ Packaging isn't configured yet. The planned approach is [electron-builder](https
 | `npm run build` | Production build into `out/` |
 | `npm run preview` | Run the production build |
 | `npm run typecheck` | Type-check all TypeScript |
-| `npm test` | Run the Vitest suite once |
+| `npm test` | Run the unit tests (main + renderer) once |
+| `npm run test:e2e` | Crawl the local test site and check every URL's issues |
+| `npm run testsite` | Serve the test site for crawling in the app |
 | `npm run test:watch` | Run Vitest in watch mode |
 | `postinstall` | Downloads Playwright Chromium (runs automatically) |
 

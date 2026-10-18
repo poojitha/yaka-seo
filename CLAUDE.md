@@ -13,11 +13,13 @@ npm run build        # compile main, preload, renderer into out/
 npm run preview      # run Electron against out/
 npm run typecheck    # tsc --noEmit on tsconfig.node.json and tsconfig.web.json
 npm test             # Vitest: main (node) + renderer (jsdom) projects
+npm run test:e2e     # crawls testsite/ in both modes; every URL must match exactly its expected filters
+npm run testsite     # serve testsite/ on 127.0.0.1:4173 for manual crawls in the app
 npx vitest run tests/main/extract.test.ts   # single file; -t "name" for a single test
 ```
 
 - There is no linter. The build uses esbuild, which does **not** type-check, so run `npm run typecheck` and `npm test` after changes.
-- Tests live in `tests/main/` and `tests/renderer/` (mirroring `src/`), and each tsconfig includes its half. Crawler tests run real crawls against a local HTTP server (see the site map at the top of `tests/main/crawler.test.ts`); `index.test.ts` mocks `electron` and `src/main/crawler`; renderer tests mock `window.api`. Use `makeResult()` from `tests/fixtures.ts` for `PageResult` rows, and load Cheerio via `tests/main/test-utils.ts` (it re-exports `loadHtml` from `src/main/html.ts`; cheerio is only installed nested under crawlee, so don't import `cheerio` directly).
+- Tests live in `tests/main/` and `tests/renderer/` (mirroring `src/`), and each tsconfig includes its half. Crawler tests run real crawls against a local HTTP server (see the site map at the top of `tests/main/crawler.test.ts`); `index.test.ts` mocks `electron` and `src/main/crawler`; renderer tests mock `window.api`. `testsite/site.ts` (the e2e target) pairs each page with its expected issue filters: a new filter or field needs a case there. Use `makeResult()` from `tests/fixtures.ts` for `PageResult` rows, and load Cheerio via `tests/main/test-utils.ts` (it re-exports `loadHtml` from `src/main/html.ts`; cheerio is only installed nested under crawlee, so don't import `cheerio` directly).
 - `dev`/`preview` go through `scripts/electron-vite.cjs`, which clears `ELECTRON_RUN_AS_NODE` (set by VS Code's terminal; it makes Electron run as plain Node and crash on `app.getPath`). Don't call `electron-vite` directly without unsetting it.
 - `SiteCrawler` has no Electron dependency, so it can be exercised headlessly by bundling a script with esbuild (`--platform=node --format=esm --packages=external --alias:@shared=./src/shared`). See README "Running the crawler without Electron".
 

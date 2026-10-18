@@ -27,6 +27,17 @@ export default defineConfig({
                     setupFiles: ['tests/renderer/setup.ts'],
                 },
             },
+            {
+                extends: true,
+                test: {
+                    // Full crawls of the test site (testsite/) in both modes; run with `npm run test:e2e`.
+                    name: 'e2e',
+                    include: ['tests/e2e/**/*.test.ts'],
+                    environment: 'node',
+                    testTimeout: 300_000,
+                    hookTimeout: 300_000,
+                },
+            },
         ],
     },
 });

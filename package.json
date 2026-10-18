@@ -10,7 +10,9 @@
     "build": "electron-vite build",
     "preview": "node scripts/electron-vite.cjs preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "vitest run",
+    "test": "vitest run --project main --project renderer",
+    "test:e2e": "vitest run --project e2e",
+    "testsite": "node scripts/testsite.cjs",
     "test:watch": "vitest",
     "postinstall": "playwright install chromium"
   },
