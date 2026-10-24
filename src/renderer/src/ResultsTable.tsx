@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import type { PageResult } from '@shared/types';
+import { isRobotsBlocked } from './filters';
 
 const ROW_HEIGHT = 34;
 const OVERSCAN = 10;
@@ -16,6 +17,7 @@ type Column = {
 };
 
 const statusTone = (r: PageResult): Tone => {
+    if (isRobotsBlocked(r)) return 'warn';
     const s = r.status ?? 0;
     return r.error || s >= 400 || s === 0 ? 'bad' : s >= 300 ? 'info' : 'good';
 };
@@ -28,7 +30,7 @@ const indexTone = (r: PageResult): Tone => {
 
 const COLUMNS: Column[] = [
     { key: 'url', label: 'Address', width: 360 },
-    { key: 'status', label: 'Status', width: 90, render: (r) => r.status ?? 'ERR', pill: statusTone },
+    { key: 'status', label: 'Status', width: 90, render: (r) => r.status ?? (isRobotsBlocked(r) ? 'Blocked' : 'ERR'), pill: statusTone },
     { key: 'indexable', label: 'Indexable', width: 160, render: (r) => (r.indexable ? 'Indexable' : r.indexabilityReason), pill: indexTone },
     { key: 'title', label: 'Title', width: 280 },
     { key: 'titleLength', label: 'Title len', width: 75 },

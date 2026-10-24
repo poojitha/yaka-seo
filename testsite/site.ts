@@ -364,7 +364,15 @@ export const CASES: Case[] = [
         respond: async (req, res, origin) => page({ name: 'Canonical in body', canonical: null, head: `<div></div><link rel="canonical" href="${origin}/indexability/canonical-in-body">` })(req, res, origin),
         filters: ['canonical-missing'],
     },
-    { section: 'indexability', path: '/private/secret', name: 'Blocked by robots.txt', respond: page({ name: 'Blocked by robots.txt' }), crawled: false },
+    {
+        section: 'indexability',
+        path: '/private/secret',
+        name: 'Blocked by robots.txt',
+        respond: page({ name: 'Blocked by robots.txt' }),
+        filters: ['noindex'],
+        fields: { status: null, statusText: 'Blocked by robots.txt', indexabilityReason: 'Blocked by robots.txt', error: null },
+        note: 'Listed as non-indexable but never requested, as in Screaming Frog.',
+    },
 
     // --- Titles ---------------------------------------------------------------------------------------------
     { section: 'titles', path: '/titles/missing', name: 'Title missing', respond: page({ name: 'Title missing', title: null }), filters: ['title-missing'] },

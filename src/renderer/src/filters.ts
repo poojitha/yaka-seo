@@ -37,6 +37,8 @@ const isHtml = (r: PageResult) => r.error === null && (r.contentType ?? '').incl
  * page's content isn't analysed, and a refresh or JavaScript redirect is a redirect, not a page.
  */
 export const isHtmlPage = (r: PageResult) => isHtml(r) && (r.status ?? 0) >= 200 && (r.status ?? 0) < 300 && r.redirectUrl === null;
+/** A URL robots.txt disallows: listed, but never requested, so it has no status. */
+export const isRobotsBlocked = (r: PageResult) => r.indexabilityReason === 'Blocked by robots.txt';
 const isFailure = (r: PageResult) => r.error !== null || (r.status ?? 0) >= 400;
 const MAX_HOPS = 20;
 

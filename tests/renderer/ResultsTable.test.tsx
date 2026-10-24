@@ -59,6 +59,14 @@ describe('ResultsTable', () => {
         expect(container.querySelectorAll('.row.bad')).toHaveLength(2);
     });
 
+    it('shows a robots.txt-blocked URL as Blocked, not as a failure', () => {
+        const blocked = makeResult({ url: 'https://example.com/private', status: null, statusText: 'Blocked by robots.txt', indexable: false, indexabilityReason: 'Blocked by robots.txt' });
+        const { container } = render(<ResultsTable rows={[blocked]} selected={null} onSelect={() => {}} />);
+        expect(screen.getByText('Blocked')).toBeTruthy();
+        expect(screen.queryByText('ERR')).toBeNull();
+        expect(container.querySelectorAll('.row.bad')).toHaveLength(0);
+    });
+
     it('only renders the rows near the viewport for large crawls', () => {
         const many = Array.from({ length: 5000 }, (_, i) => makeResult({ url: `https://example.com/${i}` }));
         const { container } = render(<ResultsTable rows={many} selected={null} onSelect={() => {}} />);

@@ -194,10 +194,19 @@ export class SiteCrawler {
          */
         const reported = new Set<string>();
         const report = (row: PageResult, page: Partial<CrawledPage> = {}) => {
-            if (reported.has(row.url)) return;
+            // Max pages caps the rows. Crawlee only counts the URLs it fetches, not the robots.txt-blocked ones listed too.
+            if (reported.has(row.url) || reported.size >= options.maxPages) return;
             reported.add(row.url);
             pages.push({ url: row.url, isHtml200: false, links: [], jsLinks: new Set(), signature: null, ...page });
             onPage(row);
+        };
+        /**
+         * Depth of the shallowest page linking to each queued URL, for the rows of URLs that are never fetched
+         * (blocked by robots.txt): Crawlee's skip callback only says which URL it skipped.
+         */
+        const linkDepths = new Map<string, number>();
+        const noteLinks = (targets: string[], depth: number) => {
+            for (const t of targets) if ((linkDepths.get(t) ?? Infinity) > depth) linkDepths.set(t, depth);
         };
 
         /** Fast HTML mode and the JS-mode HTTP fallback: per-request state filled in by got hooks. */
@@ -217,6 +226,14 @@ export class SiteCrawler {
             maxRequestRetries: 1,
             useSessionPool: false,
             respectRobotsTxtFile: true,
+            // A URL robots.txt disallows is listed, but never fetched, as in Screaming Frog.
+            onSkippedRequest: ({ url, reason }: { url: string; reason: string }) => {
+                if (reason !== 'robotsTxt') return;
+                const page = resolveUrl(url, url) ?? url;
+                // Crawlee checks robots.txt before the depth limit; a URL past the limit isn't listed either.
+                const depth = linkDepths.get(page) ?? 0;
+                if (depth <= options.maxDepth) report(blockedResult(page, depth));
+            },
             preNavigationHooks: [
                 ({ request }: { request: Request }) => {
                     request.userData.startedAt = Date.now();
@@ -243,7 +260,9 @@ export class SiteCrawler {
          * without a Content-Type, or one leading to an image), but both apply the depth, robots.txt and page limits.
          */
         const enqueueTarget = async (request: Request, target: string, queue: Pick<Queue, 'addRequests'>) => {
-            if (new URL(target).hostname === new URL(request.url).hostname) await queue.addRequests([target]);
+            if (new URL(target).hostname !== new URL(request.url).hostname) return;
+            noteLinks([target], request.crawlDepth + 1);
+            await queue.addRequests([target]);
         };
 
         const handlePage = async (request: Request, res: PageResponse, $: CheerioRoot, queue: Queue) => {
@@ -339,7 +358,10 @@ export class SiteCrawler {
                     signature: seo.indexable ? minhashSignature(contentText($)) : null,
                 },
             );
-            if (followed) await queue.enqueueLinks({ strategy: 'same-hostname' });
+            if (followed) {
+                noteLinks(links.internal, request.crawlDepth + 1);
+                await queue.enqueueLinks({ strategy: 'same-hostname' });
+            }
             if (redirectsAway) await enqueueTarget(request, redirectUrl!, queue);
         };
 
@@ -581,7 +603,10 @@ export class SiteCrawler {
     }
 }
 
-function baseResult(request: Request) {
+/** What a row needs from its request; a URL that is never fetched has no Request. */
+type RequestLike = Pick<Request, 'url' | 'crawlDepth' | 'userData'>;
+
+function baseResult(request: RequestLike) {
     const startedAt = request.userData.startedAt as number | undefined;
     // A #fragment is never sent to the server, so the page is the same URL without it.
     const url = new URL(request.url);
@@ -681,7 +706,17 @@ function countRawBodyBytes(counter: RequestTrace) {
     };
 }
 
-function errorResult(request: Request, message: string): PageResult {
+/** The row for a URL robots.txt disallows: listed, non-indexable, never requested. */
+function blockedResult(url: string, depth: number): PageResult {
+    return {
+        ...errorResult({ url, crawlDepth: depth, userData: {} }, ''),
+        statusText: 'Blocked by robots.txt',
+        indexabilityReason: 'Blocked by robots.txt',
+        error: null,
+    };
+}
+
+function errorResult(request: RequestLike, message: string): PageResult {
     return {
         ...baseResult(request),
         redirectUrl: null,

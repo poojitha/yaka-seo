@@ -270,7 +270,7 @@ async function crawl(path: string, options: Partial<CrawlOptions> = {}, crawler 
 describe('SiteCrawler (fast HTML mode)', () => {
     it('crawls every in-scope page and reports each exactly once', async () => {
         const { rows, paths } = await crawl('/');
-        expect(paths).toEqual(['/', '/a', '/a/deep', '/a/deep/deeper', '/b', '/broken', '/c', '/missing', '/redirect', '/xrobots']);
+        expect(paths).toEqual(['/', '/a', '/a/deep', '/a/deep/deeper', '/b', '/broken', '/c', '/missing', '/private/secret', '/redirect', '/xrobots']);
         expect(rows).toHaveLength(paths.length);
     });
 
@@ -295,10 +295,19 @@ describe('SiteCrawler (fast HTML mode)', () => {
         expect(byPath.get('/a/deep/deeper')!.depth).toBe(3);
     });
 
-    it('respects robots.txt', async () => {
-        const { paths } = await crawl('/');
-        expect(paths).not.toContain('/private/secret');
+    it('respects robots.txt, listing a blocked URL without requesting it', async () => {
+        const { byPath, analysed } = await crawl('/');
         expect(requested).not.toContain('/private/secret');
+        expect(byPath.get('/private/secret')).toMatchObject({
+            depth: 1,
+            status: null,
+            statusText: 'Blocked by robots.txt',
+            indexable: false,
+            indexabilityReason: 'Blocked by robots.txt',
+            responseTimeMs: null,
+            error: null,
+        });
+        expect(analysed('/private/secret')).toMatchObject({ inlinks: 1 });
     });
 
     it('stays on the start hostname (127.0.0.1 and localhost are different hosts)', async () => {
@@ -511,8 +520,8 @@ describe('SiteCrawler (fast HTML mode)', () => {
 
     it.each([
         [0, ['/']],
-        [1, ['/', '/a', '/b', '/broken', '/missing', '/redirect', '/xrobots']],
-        [2, ['/', '/a', '/a/deep', '/b', '/broken', '/c', '/missing', '/redirect', '/xrobots']],
+        [1, ['/', '/a', '/b', '/broken', '/missing', '/private/secret', '/redirect', '/xrobots']],
+        [2, ['/', '/a', '/a/deep', '/b', '/broken', '/c', '/missing', '/private/secret', '/redirect', '/xrobots']],
     ])('Depth %i limits how far links are followed', async (maxDepth, expected) => {
         const { paths } = await crawl('/', { maxDepth });
         expect(paths).toEqual(expected);

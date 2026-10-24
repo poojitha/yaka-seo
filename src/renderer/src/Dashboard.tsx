@@ -14,7 +14,7 @@ import {
     type LucideIcon,
 } from 'lucide-react';
 import type { PageResult } from '@shared/types';
-import { FILTERS, SEVERITY_LABELS, filterContext, isHtmlPage, type Severity } from './filters';
+import { FILTERS, SEVERITY_LABELS, filterContext, isHtmlPage, isRobotsBlocked, type Severity } from './filters';
 
 /*
  * Crawl summary built from the same rows as the results table (which stays the full, accessible view of every value).
@@ -170,6 +170,7 @@ function useStats(rows: PageResult[]) {
         ) as Record<Severity, Bar[]>;
 
         const statusClass = (r: PageResult) => {
+            if (isRobotsBlocked(r)) return 'Blocked';
             const s = r.status ?? 0;
             if (r.error !== null || s === 0) return 'Failed';
             return `${Math.floor(s / 100)}xx`;
@@ -181,8 +182,9 @@ function useStats(rows: PageResult[]) {
             '4xx': { label: '4xx Client error', tone: 'bad', filterId: 'errors' },
             '5xx': { label: '5xx Server error', tone: 'bad', filterId: 'errors' },
             Failed: { label: 'Failed (no response)', tone: 'bad', filterId: 'errors' },
+            Blocked: { label: 'Blocked by robots.txt', tone: 'warn', filterId: 'noindex' },
         };
-        const statuses: Bar[] = tally(rows.map(statusClass), 6)
+        const statuses: Bar[] = tally(rows.map(statusClass), 7)
             .sort((a, b) => a.label.localeCompare(b.label))
             .map((b) => ({ ...b, ...statusLook[b.label] }));
 

@@ -26,8 +26,8 @@ Enter a URL and Yaka|SEO crawls the site. It records each page's status code, ti
 - **Two crawl modes**
   - **Fast HTML mode** (`CheerioCrawler`): plain HTTP requests plus HTML parsing, for server-rendered sites.
   - **Render JavaScript mode** (`PlaywrightCrawler`): loads each page in headless Chromium, for sites built with React, Vue, Angular and similar. This is the default.
-- **Respects robots.txt.**
-- **Crawl limits:** max pages, max depth and concurrency (threads).
+- **Respects robots.txt.** A disallowed URL is never requested, but it's listed as "Blocked by robots.txt" (non-indexable), as in Screaming Frog.
+- **Crawl limits:** max pages (blocked URLs count towards it), max depth and concurrency (threads).
 - **Stays on the start URL's hostname.**
 - **User-Agent setting:** a generated real-browser (Chrome) fingerprint (default), or a custom string.
 - **Records 4xx/5xx pages and failures** as rows instead of silently dropping them. Bot-protection blocks and challenge pages (Akamai, Cloudflare) are flagged as **Blocked** instead of being reported as real pages.
@@ -398,7 +398,7 @@ ScreamingAI/
 | `httpRelNext`, `httpRelPrev` | Pagination links from the HTTP `Link` header |
 | `amphtml`, `mobileAlternate` | `<link rel="amphtml">` and `<link rel="alternate" media="...">` URLs |
 | `language` | `<html lang>` |
-| `indexable`, `indexabilityReason` | `false` with a reason: `Redirected` (3xx, or a refresh or JavaScript redirect to another URL), `Status 404` and other non-2xx statuses, `noindex (meta)` (robots or googlebot tag), `noindex (X-Robots-Tag)`, or `Canonicalised` |
+| `indexable`, `indexabilityReason` | `false` with a reason: `Redirected` (3xx, or a refresh or JavaScript redirect to another URL), `Status 404` and other non-2xx statuses, `noindex (meta)` (robots or googlebot tag), `noindex (X-Robots-Tag)`, `Canonicalised`, or `Blocked by robots.txt` (never requested: no status, and `statusText` says the same) |
 | `wordCount` | Words in body text (scripts and styles excluded) |
 | `sentenceCount`, `avgWordsPerSentence` | Sentences end at `.`, `!`, `?` and at block elements such as headings, list items and cells |
 | `fleschReadingEase`, `readability` | Flesch reading ease (English formula, higher is easier) capped to 0-100, and its band: Very Easy, Easy, Fairly Easy, Normal, Fairly Hard, Hard, Very Hard (Screaming Frog's names) |
@@ -457,7 +457,7 @@ npm i -D vite@7 @vitejs/plugin-react@5
 
 **Only the start page is crawled**
 - The site may redirect to a different hostname (for example `example.com` → `www.example.com`). Start from the final hostname.
-- robots.txt may disallow the pages.
+- robots.txt may disallow the pages: they're listed as "Blocked by robots.txt".
 - The links may be added by JavaScript. Turn on **Render JavaScript**.
 
 **Pages show as "Blocked by bot protection"**
