@@ -222,10 +222,14 @@ export class SiteCrawler {
                     request.userData.startedAt = Date.now();
                 },
             ],
-            failedRequestHandler: ({ request }: { request: Request }, error: Error) => {
-                // A redirect loop fails after too many hops, but the URL itself still answered with a redirect.
+            failedRequestHandler: async ({ request, addRequests }: { request: Request; addRequests: Queue['addRequests'] }, error: Error) => {
+                // A redirect loop fails after too many hops, but the URL itself still answered with a redirect, whose
+                // next hop is crawled as usual (so each URL of the loop gets its row).
                 const hop = traces.get(request)?.redirect;
-                report(hop ? redirectResult(request, hop) : errorResult(request, error.message));
+                if (!hop) return report(errorResult(request, error.message));
+                const row = redirectResult(request, hop);
+                report(row);
+                if (row.redirectUrl) await enqueueTarget(request, row.redirectUrl, { addRequests });
             },
         };
 
@@ -238,7 +242,7 @@ export class SiteCrawler {
          * loaded URL). addRequests, not enqueueLinks: the latter does nothing when the response isn't HTML (a 3xx
          * without a Content-Type, or one leading to an image), but both apply the depth, robots.txt and page limits.
          */
-        const enqueueTarget = async (request: Request, target: string, queue: Queue) => {
+        const enqueueTarget = async (request: Request, target: string, queue: Pick<Queue, 'addRequests'>) => {
             if (new URL(target).hostname === new URL(request.url).hostname) await queue.addRequests([target]);
         };
 

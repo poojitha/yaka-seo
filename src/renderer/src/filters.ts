@@ -32,8 +32,11 @@ export interface Filter {
 }
 
 const isHtml = (r: PageResult) => r.error === null && (r.contentType ?? '').includes('html');
-/** An HTML page that answered 2xx: the pages content checks apply to. */
-export const isHtmlPage = (r: PageResult) => isHtml(r) && (r.status ?? 0) >= 200 && (r.status ?? 0) < 300;
+/**
+ * An HTML page that answered 2xx and doesn't send the browser elsewhere: the pages content checks apply to. An error
+ * page's content isn't analysed, and a refresh or JavaScript redirect is a redirect, not a page.
+ */
+export const isHtmlPage = (r: PageResult) => isHtml(r) && (r.status ?? 0) >= 200 && (r.status ?? 0) < 300 && r.redirectUrl === null;
 const isFailure = (r: PageResult) => r.error !== null || (r.status ?? 0) >= 400;
 const MAX_HOPS = 20;
 
@@ -89,16 +92,17 @@ const ISSUES: Filter[] = [
     { id: 'errors', label: '4xx / 5xx / Failed', severity: 'error', test: isFailure },
     { id: 'redirects', label: 'Redirected', severity: 'notice', test: (r) => r.redirectUrl !== null },
     { id: 'noindex', label: 'Non-indexable', severity: 'warning', test: (r) => !r.indexable },
-    { id: 'title-missing', label: 'Title missing', severity: 'error', test: (r) => isHtml(r) && r.titleLength === 0 },
+    { id: 'title-missing', label: 'Title missing', severity: 'error', test: (r) => isHtmlPage(r) && r.titleLength === 0 },
     { id: 'title-long', label: 'Title > 60 chars', severity: 'notice', test: (r) => r.titleLength > 60 },
     // Pixel limits are Screaming Frog's defaults for where Google's desktop results cut text off.
     { id: 'title-wide', label: 'Title > 561 px', severity: 'warning', test: (r) => r.titlePixelWidth > 561 },
-    { id: 'desc-missing', label: 'Meta desc missing', severity: 'warning', test: (r) => isHtml(r) && r.metaDescriptionLength === 0 },
+    { id: 'desc-missing', label: 'Meta desc missing', severity: 'warning', test: (r) => isHtmlPage(r) && r.metaDescriptionLength === 0 },
     { id: 'desc-long', label: 'Meta desc > 155', severity: 'notice', test: (r) => r.metaDescriptionLength > 155 },
     { id: 'desc-wide', label: 'Meta desc > 985 px', severity: 'notice', test: (r) => r.metaDescriptionPixelWidth > 985 },
-    { id: 'h1-missing', label: 'H1 missing', severity: 'warning', test: (r) => isHtml(r) && r.h1Count === 0 },
+    // An empty <h1> is as good as none.
+    { id: 'h1-missing', label: 'H1 missing', severity: 'warning', test: (r) => isHtmlPage(r) && r.h1.trim() === '' },
     { id: 'h1-multiple', label: 'Multiple H1', severity: 'notice', test: (r) => r.h1Count > 1 },
-    { id: 'thin', label: 'Thin (< 200 words)', severity: 'warning', test: (r) => isHtml(r) && r.wordCount < 200 },
+    { id: 'thin', label: 'Thin (< 200 words)', severity: 'warning', test: (r) => isHtmlPage(r) && r.wordCount < 200 },
     // Filled in when the crawl ends, so this tab stays empty until then.
     { id: 'near-duplicates', label: 'Near duplicates', severity: 'warning', test: (r) => (r.nearDuplicates ?? 0) > 0 },
     { id: 'img-alt', label: 'Images missing alt', severity: 'warning', test: (r) => r.imagesMissingAlt > 0 },
