@@ -16,6 +16,8 @@ type OnPage = (result: PageResult) => void;
 /** What each crawler mode reads from its own response type. */
 interface PageResponse {
     status: number | null;
+    /** The reason phrase as sent ('Not Found', or a custom one); '' when there is none, as in HTTP/2. */
+    statusText: string;
     /** Lower-case names; multiple `Set-Cookie` headers joined with '\n' (Playwright's convention). */
     headers: Record<string, string>;
     /** As reported: '1.1', '2.0', 'h2', 'http/1.1'... */
@@ -34,6 +36,7 @@ interface PageResponse {
 /** One HTTP redirect: the status and headers of the 3xx response, and where it pointed. */
 interface RedirectHop {
     status: number;
+    statusText: string;
     /** Lower-case names. */
     headers: Record<string, string>;
     location: string;
@@ -49,18 +52,36 @@ interface RequestTrace {
 
 /**
  * Browser navigation errors for URLs that answer fine over plain HTTP: a download (PDF, unknown Content-Type), a status
- * Chromium won't display (204, 205, 304 → ERR_ABORTED; 407), and a redirect loop. JS mode fetches these over HTTP instead.
+ * Chromium won't display (204, 205, 304 → ERR_ABORTED; 407), a redirect loop, and a page that crashes the renderer
+ * (Chromium's layout crashes on a few hundred nested <div>s). JS mode fetches these over HTTP instead.
  */
-const HTTP_FALLBACK_ERRORS = /Download is starting|net::ERR_ABORTED|net::ERR_TOO_MANY_REDIRECTS|net::ERR_UNEXPECTED_PROXY_AUTH/;
+const HTTP_FALLBACK_ERRORS = /Download is starting|net::ERR_ABORTED|net::ERR_TOO_MANY_REDIRECTS|net::ERR_UNEXPECTED_PROXY_AUTH|Target crashed/;
 
-/** Content types parsed as a page. Anything else (images, PDFs, JSON…) gets an empty document. */
-const isHtml = (contentType: string | undefined) => /^\s*(text\/html|application\/xhtml\+xml)\b/i.test(contentType ?? '');
+/** Start of a body that browsers sniff as HTML when there's no Content-Type (WHATWG MIME sniffing, simplified). */
+const HTML_SIGNATURE = /^﻿?\s*<(!doctype html|html|head|script|iframe|h1|div|font|table|a|style|title|b|body|br|p|!--)[\s>]/i;
+
+/**
+ * Content types parsed as a page. Anything else (images, PDFs, JSON…) gets an empty document. Without a
+ * Content-Type, the body decides, as in a browser.
+ */
+const isHtml = (contentType: string | undefined, body: Buffer | null = null) =>
+    contentType
+        ? /^\s*(text\/html|application\/xhtml\+xml)\b/i.test(contentType)
+        : body !== null && HTML_SIGNATURE.test(body.subarray(0, 512).toString('utf8'));
+
+/**
+ * The reason phrase as sent, else the standard one. A missing code would otherwise read as proxy-chain's (a Crawlee
+ * dependency adds 590–599 to Node's table, e.g. 599 'Upstream Error'), so those fall back to ''.
+ */
+const statusTextFor = (status: number | null, sent: string | undefined) =>
+    sent || (status !== null && !(status >= 590 && status <= 599) && STATUS_CODES[status]) || '';
 
 /** A got response, as fast HTML mode and the JS-mode HTTP fallback receive it. */
 interface GotResponseLike {
     /** The final URL, after redirects. */
     url?: string;
     statusCode?: number;
+    statusMessage?: string;
     headers: Record<string, string | string[] | undefined>;
     httpVersion: string;
 }
@@ -78,6 +99,7 @@ function gotPageResponse(response: GotResponseLike, body: Buffer, trace: Request
     const transferred = trace?.bytes ?? body.length;
     return {
         status: response.statusCode ?? null,
+        statusText: response.statusMessage ?? '',
         headers,
         httpVersion: response.httpVersion,
         body,
@@ -166,7 +188,14 @@ export class SiteCrawler {
         // Link targets and text fingerprints for the post-crawl analysis. Kept here, not in the rows, so they
         // aren't sent to the renderer.
         const pages: CrawledPage[] = [];
+        /**
+         * One row per URL. Crawlee doesn't cancel a handler that times out: it retries the request (or calls
+         * failedRequestHandler) while the first attempt may still finish and report.
+         */
+        const reported = new Set<string>();
         const report = (row: PageResult, page: Partial<CrawledPage> = {}) => {
+            if (reported.has(row.url)) return;
+            reported.add(row.url);
             pages.push({ url: row.url, isHtml200: false, links: [], jsLinks: new Set(), signature: null, ...page });
             onPage(row);
         };
@@ -219,7 +248,9 @@ export class SiteCrawler {
             // that hop's row, as in Screaming Frog. Also covers a 3xx the client didn't follow (300, 305).
             const hop =
                 res.redirect ??
-                (status !== null && status >= 300 && status < 400 && headers['location'] ? { status, headers, location: headers['location'] } : null);
+                (status !== null && status >= 300 && status < 400 && headers['location']
+                    ? { status, statusText: res.statusText, headers, location: headers['location'] }
+                    : null);
             if (hop) {
                 const row = redirectResult(request, hop, HTTP_VERSIONS[res.httpVersion.toLowerCase()] ?? res.httpVersion);
                 report(row);
@@ -229,7 +260,7 @@ export class SiteCrawler {
             const co2Mg = res.totalTransferredBytes === null ? null : co2Milligrams(res.totalTransferredBytes);
             const response = {
                 status,
-                statusText: (status !== null && STATUS_CODES[status]) || '',
+                statusText: statusTextFor(status, res.statusText),
                 contentType: headers['content-type'] ?? null,
                 httpVersion: HTTP_VERSIONS[res.httpVersion.toLowerCase()] ?? res.httpVersion,
                 lastModified: headers['last-modified'] ?? '',
@@ -329,7 +360,7 @@ export class SiteCrawler {
                 });
                 const body = Buffer.isBuffer(response.body) ? response.body : Buffer.from(String(response.body ?? ''));
                 const pageResponse = gotPageResponse(response, body, traces.get(request));
-                const document = isHtml(pageResponse.headers['content-type']) ? loadHtml(body.toString('utf8')) : loadHtml('');
+                const document = isHtml(pageResponse.headers['content-type'], body) ? loadHtml(body.toString('utf8')) : loadHtml('');
                 const hrefs = document('a[href]')
                     .map((_, el) => document(el).attr('href')!)
                     .get();
@@ -366,7 +397,17 @@ export class SiteCrawler {
                         );
                     },
                     // Crawlee's fingerprints override the User-Agent, so they're only used for the browser ('') setting.
-                    ...(userAgent && { browserPoolOptions: { useFingerprints: false }, launchContext: { userAgent } }),
+                    ...(userAgent && { browserPoolOptions: { useFingerprints: false } }),
+                    launchContext: {
+                        ...(userAgent && { userAgent }),
+                        // Crawlee otherwise sends all browser traffic through a local proxy-chain server, which
+                        // rewrites what the site answered: a 407 becomes '597 Auth Failed', a dropped connection
+                        // '595 Connection Reset'. Bypassing it for every host (Crawlee merges this over its own proxy
+                        // setting) makes the browser connect directly and see the real response.
+                        // No `server`: Crawlee's is kept, since Playwright needs one to apply the bypass list. 'localhost'
+                        // is listed because otherwise Playwright appends '<-loopback>', which proxies local sites anyway.
+                        launchOptions: { proxy: { bypass: 'localhost,*' } as { server: string; bypass: string } },
+                    },
                     preNavigationHooks: [
                         ...shared.preNavigationHooks,
                         async ({ page }, gotoOptions) => {
@@ -420,9 +461,16 @@ export class SiteCrawler {
                         if (redirect?.headers['non-authoritative-reason']) {
                             return fetchOverHttp(request, sendRequest as unknown as SendRequest, addRequests);
                         }
+                        const contentType = response?.headers()['content-type'];
+                        // Chromium's media player streams audio and video, so their body and sizes never resolve and
+                        // the handler would time out.
+                        if (/^\s*(video|audio)\//i.test(contentType ?? '')) {
+                            return fetchOverHttp(request, sendRequest as unknown as SendRequest, addRequests);
+                        }
                         // An image or text file is shown in a page Chromium generates (an image's is titled
                         // "name.png (120×38)"), which isn't the site's content: like fast mode, it gets an empty document.
-                        const html = !response || isHtml(response.headers()['content-type']);
+                        // Without a Content-Type, Chromium sniffs the body and renders HTML as a page.
+                        const html = !response || !contentType || isHtml(contentType);
                         const $ = html ? await parseWithCheerio() : loadHtml('');
                         // Playwright's Response doesn't expose the protocol; Navigation Timing does ('h2', 'http/1.1').
                         const httpVersion = await page
@@ -448,6 +496,7 @@ export class SiteCrawler {
                             : null;
                         const pageResponse: PageResponse = {
                             status: response?.status() ?? null,
+                            statusText: response?.statusText() ?? '',
                             // allHeaders(), not headers(): the latter omits Set-Cookie.
                             headers: (await response?.allHeaders().catch(() => null)) ?? response?.headers() ?? {},
                             httpVersion,
@@ -491,7 +540,10 @@ export class SiteCrawler {
                         // are re-parsed with Cheerio's HTML5 parser so fields match what search engines see.
                         // Crawlee only parses HTML and XML; anything else gets an empty document, so its row still
                         // carries the header-based fields (X-Robots-Tag, Link canonical). ($ is typed as always set, but isn't.)
-                        const document = !$ ? loadHtml('') : contentType.type.includes('xml') ? $ : loadHtml(buffer.toString('utf8'));
+                        // Without a Content-Type, the body is sniffed as a browser would.
+                        const parsed = !$ ? null : contentType.type.includes('xml') ? $ : loadHtml(buffer.toString('utf8'));
+                        const sniffed = !response.headers['content-type'] && isHtml(undefined, buffer);
+                        const document = parsed ?? loadHtml(sniffed ? buffer.toString('utf8') : '');
                         await handlePage(request, pageResponse, document, { enqueueLinks, addRequests });
                     },
                 },
@@ -548,7 +600,7 @@ function redirectResult(request: Request, hop: RedirectHop, httpVersion = ''): P
         redirectUrl: resolveUrl(hop.location, request.url),
         redirectType: 'HTTP Redirect',
         status: hop.status,
-        statusText: STATUS_CODES[hop.status] ?? '',
+        statusText: statusTextFor(hop.status, hop.statusText),
         contentType: hop.headers['content-type'] ?? null,
         httpVersion,
         lastModified: hop.headers['last-modified'] ?? '',
@@ -566,6 +618,7 @@ async function firstRedirect(final: BrowserRequest): Promise<RedirectHop | null>
     if (!response) return null;
     return {
         status: response.status(),
+        statusText: response.statusText(),
         headers: (await response.allHeaders().catch(() => null)) ?? response.headers(),
         location: first.redirectedTo()?.url() ?? response.headers()['location'] ?? '',
     };
@@ -573,10 +626,18 @@ async function firstRedirect(final: BrowserRequest): Promise<RedirectHop | null>
 
 /** got `beforeRedirect` hook (fast HTML mode) that records the first redirect: the requested URL's own response. */
 function recordFirstRedirect(trace: RequestTrace) {
-    return (options: { url?: URL | string }, response: { statusCode: number; headers: Record<string, string | string[] | undefined> }) => {
+    return (
+        options: { url?: URL | string },
+        response: { statusCode: number; statusMessage?: string; headers: Record<string, string | string[] | undefined> },
+    ) => {
         if (trace.redirect) return;
         const headers = Object.fromEntries(Object.entries(response.headers).map(([k, v]) => [k.toLowerCase(), Array.isArray(v) ? v.join(',') : (v ?? '')]));
-        trace.redirect = { status: response.statusCode, headers, location: String(options.url ?? headers['location'] ?? '') };
+        trace.redirect = {
+            status: response.statusCode,
+            statusText: response.statusMessage ?? '',
+            headers,
+            location: String(options.url ?? headers['location'] ?? ''),
+        };
     };
 }
 

@@ -33,7 +33,9 @@ import { SiteCrawler } from '../../src/main/crawler';
  * Redirects: /chain 302 -> /redirect 301 -> /c, /loop 302 -> itself, /meta-refresh and /refresh-header (-> /c),
  * /js-redirect (location.replace -> /c), /push-state (history.pushState, not a redirect).
  * /files links to non-HTML responses: an image, a PDF (noindex and canonical by header), a 204, an unknown
- * Content-Type, and a 301 to another image (/files/moved.png).
+ * Content-Type, a 301 to another image (/files/moved.png), and a video.
+ * /odd-responses links to: HTML with no Content-Type, a 419 with its own reason phrase, a 407 from the site itself,
+ * and a page nested deep enough to crash Chromium's renderer.
  */
 const html = (body: string, head = '') => `<!doctype html><html><head>${head}</head><body>${body}</body></html>`;
 const links = (...paths: string[]) => paths.map((p) => `<a href="${p}">${p}</a>`).join('\n');
@@ -64,6 +66,8 @@ const WEIGHT_A_GZIP = gzipSync(WEIGHT_A_BODY);
 const WEIGHT_CSS = `body { color: #333; }\n${'/* padding */\n'.repeat(100)}`;
 // A valid 1x1 PNG, so the browser finishes loading it.
 const WEIGHT_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+// An MP4 header and padding: Chromium's media player opens it but never finishes the response.
+const VIDEO = Buffer.concat([Buffer.from('\x00\x00\x00\x18ftypmp42', 'latin1'), Buffer.alloc(1012)]);
 
 const ARTICLE = Array.from({ length: 200 }, (_, i) => `This is sentence ${i} of the article.`).join(' ');
 const OTHER_ARTICLE = Array.from({ length: 200 }, (_, i) => `Another text, paragraph ${i * 3} here.`).join(' ');
@@ -140,7 +144,7 @@ const routes: Record<string, Route> = {
     },
 
     // Linked files that aren't HTML: each is still a row, with its status and headers.
-    '/files': page(links('/files/pixel.png', '/files/doc.pdf', '/files/empty', '/files/odd', '/files/to-image'), '<title>Files</title>'),
+    '/files': page(links('/files/pixel.png', '/files/doc.pdf', '/files/empty', '/files/odd', '/files/to-image', '/files/video.mp4'), '<title>Files</title>'),
     '/files/pixel.png': (_req, res) => {
         res.writeHead(200, { 'content-type': 'image/png', 'content-length': WEIGHT_PNG.length, 'last-modified': 'Tue, 01 Sep 2026 10:00:00 GMT' });
         res.end(WEIGHT_PNG);
@@ -165,6 +169,23 @@ const routes: Record<string, Route> = {
         res.writeHead(200, { 'content-type': 'image/png' });
         res.end(WEIGHT_PNG);
     },
+    '/files/video.mp4': (_req, res) => {
+        res.writeHead(200, { 'content-type': 'video/mp4', 'content-length': VIDEO.length });
+        res.end(VIDEO);
+    },
+
+    '/odd-responses': page(links('/no-type', '/reason', '/proxy-auth', '/nested'), '<title>Odd responses</title>'),
+    '/no-type': (_req, res) => {
+        res.writeHead(200);
+        res.end(html('<h1>Sniffed</h1><p>Served without a Content-Type.</p>', '<title>No type</title>'));
+    },
+    // A code Node's table doesn't know, so only the reason phrase as sent names it.
+    '/reason': (_req, res) => {
+        res.writeHead(419, 'Page Expired', { 'content-type': 'text/html; charset=utf-8' });
+        res.end(html('<p>Expired</p>'));
+    },
+    '/proxy-auth': page('<p>Auth</p>', '', 407),
+    '/nested': page(`${'<div>'.repeat(300)}<p>Deep</p>${'</div>'.repeat(300)}`, '<title>Nested</title>'),
 
     // Response-level fields: headers the crawler reports, and a fixed body for size and hash.
     '/docs/guide/page': (_req, res) => {
@@ -368,6 +389,14 @@ describe('SiteCrawler (fast HTML mode)', () => {
         // A redirect whose target isn't HTML still queues the target.
         expect(byPath.get('/files/to-image')).toMatchObject({ status: 301, redirectUrl: `${origin}/files/moved.png` });
         expect(byPath.get('/files/moved.png')).toMatchObject({ status: 200, contentType: 'image/png', error: null });
+        expect(byPath.get('/files/video.mp4')).toMatchObject({ status: 200, contentType: 'video/mp4', sizeBytes: VIDEO.length, error: null });
+    });
+
+    it('sniffs HTML without a Content-Type, and reports the reason phrase as sent', async () => {
+        const { byPath } = await crawl('/odd-responses');
+        expect(byPath.get('/no-type')).toMatchObject({ status: 200, contentType: null, title: 'No type', h1: 'Sniffed', error: null });
+        expect(byPath.get('/reason')).toMatchObject({ status: 419, statusText: 'Page Expired', error: null });
+        expect(byPath.get('/proxy-auth')).toMatchObject({ status: 407, statusText: 'Proxy Authentication Required', error: null });
     });
 
     it('reads a page with an unknown charset as UTF-8 instead of failing it', async () => {
@@ -669,7 +698,7 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
     });
 
     it('reports files and statuses the browser cannot show as a page like fast mode does, not as errors', async () => {
-        const { byPath } = await crawl('/files', { renderJs: true });
+        const { byPath, rows } = await crawl('/files', { renderJs: true });
         // Chromium shows an image in a page of its own (titled "pixel.png (1×1)"); that isn't the site's content.
         expect(byPath.get('/files/pixel.png')).toMatchObject({
             status: 200,
@@ -692,6 +721,19 @@ describe('SiteCrawler (Render JavaScript mode)', () => {
         expect(byPath.get('/files/moved.png')).toMatchObject({ status: 200, title: '', error: null });
         // Fetched once over HTTP, not retried in the browser first.
         expect(requested.filter((p) => p === '/files/doc.pdf')).toHaveLength(2);
+        // Chromium's media player never finishes a video's response; it's fetched over HTTP instead of timing out.
+        expect(byPath.get('/files/video.mp4')).toMatchObject({ status: 200, contentType: 'video/mp4', sizeBytes: VIDEO.length, error: null });
+        expect(rows.filter((r) => r.url.endsWith('/files/video.mp4'))).toHaveLength(1);
+    });
+
+    it('reports what the site sent, not what Crawlee\'s proxy or a renderer crash makes of it', async () => {
+        const { byPath } = await crawl('/odd-responses', { renderJs: true });
+        // Through Crawlee's local proxy this was '597 Auth Failed'.
+        expect(byPath.get('/proxy-auth')).toMatchObject({ status: 407, statusText: 'Proxy Authentication Required', error: null });
+        expect(byPath.get('/reason')).toMatchObject({ status: 419, statusText: 'Page Expired', error: null });
+        expect(byPath.get('/no-type')).toMatchObject({ status: 200, title: 'No type', h1: 'Sniffed', error: null });
+        // Crashes Chromium's renderer; fetched over HTTP instead.
+        expect(byPath.get('/nested')).toMatchObject({ status: 200, title: 'Nested', error: null });
     });
 
     it('reports a redirect loop as a redirect in browser mode too', async () => {
