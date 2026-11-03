@@ -156,9 +156,15 @@ npx esbuild scripts/crawl.ts --bundle --platform=node --format=esm --packages=ex
 node scripts/crawl.mjs
 ```
 
-### 5. Packaging an installer (not set up yet)
+### 5. Packaging an installer
 
-Packaging isn't configured yet. The planned approach is [electron-builder](https://www.electron.build/) (`npm i -D electron-builder`, then `electron-builder --win`). The Playwright Chromium browser has to be shipped with the installer, or downloaded on first run, for the Render JavaScript mode to work. See the [roadmap](ROADMAP.md).
+```bash
+npm run dist
+```
+
+This builds the app, downloads Playwright's headless Chromium shell into `build/ms-playwright/`, and runs [electron-builder](https://www.electron.build/) (config in `electron-builder.yml`). The result is `dist/Yaka-SEO-Setup-<version>.exe`, an NSIS installer (about 215 MB) that lets the user pick the install folder and adds Start menu and desktop shortcuts. `dist/win-unpacked/` holds the same app unpacked, for a quick check without installing.
+
+The browser ships as an extra resource outside `app.asar`, and `main/index.ts` points `PLAYWRIGHT_BROWSERS_PATH` at it when the app is packaged, so Render JavaScript mode works with no download on first run. The installer isn't code-signed, so Windows SmartScreen warns on first launch ("More info" → "Run anyway").
 
 ### npm scripts reference
 
@@ -170,6 +176,7 @@ Packaging isn't configured yet. The planned approach is [electron-builder](https
 | `npm run typecheck` | Type-check all TypeScript |
 | `npm test` | Run the unit tests (main + renderer) once |
 | `npm run test:e2e` | Crawl the local test site and check every URL's issues |
+| `npm run dist` | Build the Windows installer into `dist/` (downloads the bundled browser first) |
 | `npm run testsite` | Serve the test site for crawling in the app |
 | `npm run test:watch` | Run Vitest in watch mode |
 | `postinstall` | Downloads Playwright Chromium (runs automatically) |
@@ -470,6 +477,6 @@ The site's CDN (Akamai, Cloudflare) is refusing automated clients. Try a custom 
 - Results are held **in memory**, as a React array in the renderer and in IPC batches. They're lost when the app closes and will struggle past roughly 100k URLs.
 - **Only one crawl at a time.**
 - **Link graph is in memory and summarised.** Inlinks and link scores are worked out when the crawl ends, but the individual links aren't shown or exported, so there's no "which pages link here" view, broken-link sources or orphan pages yet. Near duplicates and link scores cover only the pages this crawl reached.
-- **No installer or packaging** yet.
+- **Windows only, unsigned installer.** There are no macOS/Linux builds or auto-updates yet.
 
 Planned work is tracked in [ROADMAP.md](ROADMAP.md).

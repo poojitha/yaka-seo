@@ -10,6 +10,8 @@ import icon from '../../resources/icon.png?asset';
 
 // Keep Crawlee from creating ./storage in whatever directory the app was launched from.
 process.env.CRAWLEE_STORAGE_DIR = join(app.getPath('userData'), 'crawlee-storage');
+// The installer ships its own browser (see electron-builder.yml); Playwright reads this lazily, at first launch.
+if (app.isPackaged) process.env.PLAYWRIGHT_BROWSERS_PATH = join(process.resourcesPath, 'ms-playwright');
 
 const crawler = new SiteCrawler();
 let mainWindow: BrowserWindow | null = null;

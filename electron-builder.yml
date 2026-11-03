@@ -1,0 +1,23 @@
+appId: com.yaka.seo
+productName: Yaka SEO
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+# The Playwright browser for Render JavaScript mode, downloaded by scripts/fetch-browser.cjs.
+# main/index.ts points PLAYWRIGHT_BROWSERS_PATH here when the app is packaged.
+extraResources:
+  - from: build/ms-playwright
+    to: ms-playwright
+win:
+  target: nsis
+  icon: resources/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Yaka SEO
+  artifactName: Yaka-SEO-Setup-${version}.${ext}

@@ -13,4 +13,4 @@ Planned work for Yaka|SEO, roughly in priority order. For what the app can't do 
 5. **More checks:** hreflang, structured data (JSON-LD), Open Graph and Twitter tags, duplicate titles and descriptions, sitemap.xml comparison, pagination.
 6. **Crawl settings:** include/exclude patterns, subdomain scope, crawl delay.
 7. **AI features (Claude API):** content audits, rewritten titles and meta descriptions, grouping pages by topic, semantic similarity between pages (embeddings) and a semantic relevance score that flags off-topic pages.
-8. **Packaging** with electron-builder, including the Playwright browser.
+8. **Packaging:** code signing, auto-update, and macOS/Linux builds (the Windows installer is done).

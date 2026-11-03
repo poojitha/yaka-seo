@@ -14,7 +14,8 @@
     "test:e2e": "vitest run --project e2e",
     "testsite": "node scripts/testsite.cjs",
     "test:watch": "vitest",
-    "postinstall": "playwright install chromium"
+    "postinstall": "playwright install chromium",
+    "dist": "npm run build && node scripts/fetch-browser.cjs && electron-builder --win"
   },
   "dependencies": {
     "crawlee": "^3.18.1",
@@ -32,11 +33,13 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^44.4.5",
+    "electron-builder": "^26.18.0",
     "electron-vite": "^5.0.0",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitest": "^5.0.2"
-  }
+  },
+  "author": "Leon Jayasinghe"
 }

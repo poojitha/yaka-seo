@@ -15,6 +15,7 @@ npm run typecheck    # tsc --noEmit on tsconfig.node.json and tsconfig.web.json
 npm test             # Vitest: main (node) + renderer (jsdom) projects
 npm run test:e2e     # crawls testsite/ in both modes; every URL must match exactly its expected filters
 npm run testsite     # serve testsite/ on 127.0.0.1:4173 for manual crawls in the app
+npm run dist         # Windows NSIS installer in dist/ (bundles Playwright headless shell; see electron-builder.yml)
 npx vitest run tests/main/extract.test.ts   # single file; -t "name" for a single test
 ```
 

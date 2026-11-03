@@ -4,3 +4,4 @@ dist/
 storage/
 *.log
 *.tsbuildinfo
+build/ms-playwright/
