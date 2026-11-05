@@ -15,7 +15,7 @@ export interface PageResult {
     urlEncoded: string;
     /**
      * Where this URL redirects to (the next hop, not the end of a chain), or null. Each hop is crawled as its own
-     * row, as in Screaming Frog.
+     * row.
      */
     redirectUrl: string | null;
     /** 'HTTP Redirect', 'HTTP Refresh Redirect', 'Meta Refresh Redirect' or 'JavaScript Redirect' when `redirectUrl` is set, else ''. */

@@ -135,7 +135,7 @@ const HTTP_VERSIONS: Record<string, string> = { 'http/1.0': '1.0', 'http/1.1': '
 
 /**
  * CheerioCrawler that reads a response with an unknown charset (`charset=utf-6`) as UTF-8 instead of failing it.
- * Browsers ignore a charset label they don't know, and so does Screaming Frog.
+ * Browsers ignore a charset label they don't know, so we do too.
  */
 class LenientCheerioCrawler extends CheerioCrawler {
     protected override _encodeResponse(...[request, response, encoding]: Parameters<CheerioCrawler['_encodeResponse']>) {
@@ -226,7 +226,7 @@ export class SiteCrawler {
             maxRequestRetries: 1,
             useSessionPool: false,
             respectRobotsTxtFile: true,
-            // A URL robots.txt disallows is listed, but never fetched, as in Screaming Frog.
+            // A URL robots.txt disallows is listed, but never fetched.
             onSkippedRequest: ({ url, reason }: { url: string; reason: string }) => {
                 if (reason !== 'robotsTxt') return;
                 const page = resolveUrl(url, url) ?? url;
@@ -268,7 +268,7 @@ export class SiteCrawler {
         const handlePage = async (request: Request, res: PageResponse, $: CheerioRoot, queue: Queue) => {
             const { status, headers, body } = res;
             // An HTTP redirect is its own row, and only its next hop is queued: the page it leads to is reported as
-            // that hop's row, as in Screaming Frog. Also covers a 3xx the client didn't follow (300, 305).
+            // that hop's row. Also covers a 3xx the client didn't follow (300, 305).
             const hop =
                 res.redirect ??
                 (status !== null && status >= 300 && status < 400 && headers['location']
@@ -305,8 +305,8 @@ export class SiteCrawler {
                 });
                 return;
             }
-            // A 4xx/5xx page's links aren't followed, and its content isn't analysed: the error page says nothing about
-            // the URL's real content (Screaming Frog leaves title, meta tags, word count and outlinks blank too).
+            // A 4xx/5xx page's links aren't followed, and its content isn't analysed (title, meta tags, word count and
+            // outlinks stay blank): the error page says nothing about the URL's real content.
             // Only the response itself (status, headers, size) is reported.
             const followed = status === null || status < 400;
             if (!followed) $ = loadHtml('');
@@ -354,7 +354,7 @@ export class SiteCrawler {
                     isHtml200: status === 200 && /html/i.test(response.contentType ?? ''),
                     links: links.internal,
                     jsLinks: jsInternal,
-                    // Only indexable pages are checked for near duplicates, as in Screaming Frog by default.
+                    // Only indexable pages are checked for near duplicates.
                     signature: seo.indexable ? minhashSignature(contentText($)) : null,
                 },
             );
@@ -483,7 +483,7 @@ export class SiteCrawler {
                         const redirect = response ? await firstRedirect(response.request()) : null;
                         // Chromium upgrades http:// to https:// by itself for a host that sent HSTS earlier in the
                         // crawl: a "307 Internal Redirect" the server never sent. What the server really answers for
-                        // the http:// URL (often a 200 page, as Screaming Frog reports) is fetched over plain HTTP.
+                        // the http:// URL (often a 200 page) is fetched over plain HTTP.
                         if (redirect?.headers['non-authoritative-reason']) {
                             return fetchOverHttp(request, sendRequest as unknown as SendRequest, addRequests);
                         }
@@ -543,8 +543,8 @@ export class SiteCrawler {
                 {
                     ...shared,
                     ignoreHttpErrorStatusCodes: HTTP_ERROR_CODES,
-                    // Every linked URL is reported, whatever it serves (images, PDFs, a 204 with no body), as in
-                    // Screaming Frog. By default Crawlee fails anything that isn't HTML, XML or JSON.
+                    // Every linked URL is reported, whatever it serves (images, PDFs, a 204 with no body). By
+                    // default Crawlee fails anything that isn't HTML, XML or JSON.
                     additionalMimeTypes: ['*/*'],
                     preNavigationHooks: [
                         ...shared.preNavigationHooks,
@@ -615,7 +615,7 @@ function baseResult(request: RequestLike) {
         url: url.href,
         urlEncoded: url.href,
         depth: request.crawlDepth,
-        // Directories only, as in Screaming Frog: '/a/b/' is 2, '/a/b' is 1 ('b' is the page).
+        // Directories only: '/a/b/' is 2, '/a/b' is 1 ('b' is the page).
         folderDepth: url.pathname.split('/').slice(1, -1).filter(Boolean).length,
         responseTimeMs: startedAt ? Date.now() - startedAt : null,
         crawlTimestamp: new Date().toISOString(),

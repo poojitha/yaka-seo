@@ -187,7 +187,7 @@ function countSyllables(word: string): number {
     return Math.max(1, groups?.length ?? 0);
 }
 
-// Same bands and names as Screaming Frog's Readability column.
+// The standard Flesch reading ease bands and names.
 function readabilityBand(score: number): string {
     if (score >= 90) return 'Very Easy';
     if (score >= 80) return 'Easy';

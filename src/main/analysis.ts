@@ -14,7 +14,7 @@ export interface CrawledPage {
 }
 
 const DAMPING = 0.85;
-/** Pages whose MinHash similarity is at least this are near duplicates (Screaming Frog's default). */
+/** Pages whose MinHash similarity is at least this are near duplicates (the usual default in SEO crawlers). */
 export const NEAR_DUPLICATE_THRESHOLD = 0.9;
 
 // MinHash: 128 hash functions over 5-word shingles, bucketed into 16 bands of 8 for locality-sensitive hashing.
@@ -78,7 +78,7 @@ export function analyseCrawl(pages: CrawledPage[]): CrawlAnalysis {
 
 /**
  * PageRank over the internal link graph (each linking page counted once per target), scaled 0-100 on a log scale
- * so the best-linked page is 100. Screaming Frog's Link Score works the same way, but its exact scaling isn't public.
+ * so the best-linked page is 100.
  */
 function linkScores(sources: Set<number>[], n: number): number[] {
     if (n === 0) return [];

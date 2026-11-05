@@ -96,7 +96,7 @@ const ISSUES: Filter[] = [
     { id: 'noindex', label: 'Non-indexable', severity: 'warning', test: (r) => !r.indexable },
     { id: 'title-missing', label: 'Title missing', severity: 'error', test: (r) => isHtmlPage(r) && r.titleLength === 0 },
     { id: 'title-long', label: 'Title > 60 chars', severity: 'notice', test: (r) => r.titleLength > 60 },
-    // Pixel limits are Screaming Frog's defaults for where Google's desktop results cut text off.
+    // Pixel limits are the usual estimates of where Google's desktop results cut text off.
     { id: 'title-wide', label: 'Title > 561 px', severity: 'warning', test: (r) => r.titlePixelWidth > 561 },
     { id: 'desc-missing', label: 'Meta desc missing', severity: 'warning', test: (r) => isHtmlPage(r) && r.metaDescriptionLength === 0 },
     { id: 'desc-long', label: 'Meta desc > 155', severity: 'notice', test: (r) => r.metaDescriptionLength > 155 },

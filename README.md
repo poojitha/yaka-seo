@@ -1,6 +1,6 @@
 # Yaka|SEO
 
-A desktop SEO crawler in the style of Screaming Frog, built with **Electron**, **TypeScript**, **Crawlee** and **Playwright**.
+A desktop SEO crawler built with **Electron**, **TypeScript**, **Crawlee** and **Playwright**.
 
 Enter a URL and Yaka|SEO crawls the site. It records each page's status code, title, meta description, headings, canonical, indexability, word count and link counts. It can also render JavaScript-heavy sites in headless Chromium. Issue filters flag common SEO problems, and results can be exported to CSV.
 
@@ -26,7 +26,7 @@ Enter a URL and Yaka|SEO crawls the site. It records each page's status code, ti
 - **Two crawl modes**
   - **Fast HTML mode** (`CheerioCrawler`): plain HTTP requests plus HTML parsing, for server-rendered sites.
   - **Render JavaScript mode** (`PlaywrightCrawler`): loads each page in headless Chromium, for sites built with React, Vue, Angular and similar. This is the default.
-- **Respects robots.txt.** A disallowed URL is never requested, but it's listed as "Blocked by robots.txt" (non-indexable), as in Screaming Frog.
+- **Respects robots.txt.** A disallowed URL is never requested, but it's listed as "Blocked by robots.txt" (non-indexable).
 - **Crawl limits:** max pages (blocked URLs count towards it), max depth and concurrency (threads).
 - **Stays on the start URL's hostname.**
 - **User-Agent setting:** a generated real-browser (Chrome) fingerprint (default), or a custom string.
@@ -232,7 +232,7 @@ Electron apps run as separate processes. Yaka|SEO keeps all crawling in the **ma
 4. **Per page:**
    - A `preNavigationHooks` hook records the start time, which is used for response time.
    - The mode-specific `requestHandler` gets the status and headers from its own response type. For example, Cheerio has `response.statusCode` and Playwright has `response.status()`.
-   - It then calls the shared `handlePage()`. If `detectBotProtection()` recognizes a CDN block or challenge page, the row is reported as blocked and its links are ignored. Otherwise it runs `extractSeo()`, reports the row, and adds same-hostname links to the queue (only if the status is below 400). A 4xx/5xx page's content isn't analysed at all (title, meta tags, word count and outlinks stay blank, as in Screaming Frog): the error page says nothing about the URL's real content.
+   - It then calls the shared `handlePage()`. If `detectBotProtection()` recognizes a CDN block or challenge page, the row is reported as blocked and its links are ignored. Otherwise it runs `extractSeo()`, reports the row, and adds same-hostname links to the queue (only if the status is below 400). A 4xx/5xx page's content isn't analysed at all (title, meta tags, word count and outlinks stay blank): the error page says nothing about the URL's real content.
 5. **Failures:** timeouts, DNS errors and similar go to `failedRequestHandler` and appear as rows with `error` set. A linked file that isn't HTML (an image, a PDF, a 204 with no body) is not a failure: it's reported like a page with an empty document, so it gets its status, headers, size and any header directives (X-Robots-Tag, `Link` canonical). In JS mode, anything the browser can't show as a page (a download, a 204/205/304/407, a redirect loop) fails navigation; those URLs are fetched once over plain HTTP instead, with no retry in the browser. So are `http://` URLs of a host that sent HSTS earlier in the crawl: Chromium would otherwise upgrade them to https itself and report a 307 the server never sent.
 6. **UI update (renderer):** each batch is appended to the React state. The filter counts, filtered view and search are recalculated with `useMemo`.
 7. **Post-crawl analysis:** while crawling, `crawler.ts` keeps each page's internal link targets, its JS-only links and a MinHash fingerprint of its text in main (they're never sent to the UI). When the crawl ends, finished or stopped, `analyseCrawl()` in `analysis.ts` works out inlinks, % of Total, link score (PageRank) and near duplicates for every page. `SiteCrawler.run()` resolves with the result, and main sends it as one `crawl:analysis` event after the last results and before the final status. The renderer merges it into the rows; until then those columns are empty.
@@ -375,20 +375,20 @@ ScreamingAI/
 | Field | Description |
 |---|---|
 | `url`, `urlEncoded` | Requested URL, and its percent-encoded form |
-| `redirectUrl`, `redirectType` | Where the URL redirects to, and how: `HTTP Redirect` (a 3xx, reported as its own row with no page content), `HTTP Refresh Redirect` (`Refresh` header), `Meta Refresh Redirect` or `JavaScript Redirect` (JS mode). As in Screaming Frog, this is the next hop: each hop of a chain, and the final page, are crawled as their own rows. A redirect loop is reported as a redirect to itself (JS mode: an error, since the browser refuses to load it). |
+| `redirectUrl`, `redirectType` | Where the URL redirects to, and how: `HTTP Redirect` (a 3xx, reported as its own row with no page content), `HTTP Refresh Redirect` (`Refresh` header), `Meta Refresh Redirect` or `JavaScript Redirect` (JS mode). This is the next hop: each hop of a chain, and the final page, are crawled as their own rows. A redirect loop is reported as a redirect to itself (JS mode: an error, since the browser refuses to load it). |
 | `status`, `statusText` | HTTP status code (`null` if the request failed) and its standard reason phrase (`Not Found`) |
 | `contentType` | `Content-Type` response header |
 | `httpVersion` | Protocol version: `1.1`, `2` or `3` |
 | `lastModified` | `Last-Modified` response header |
 | `cookies` | Names of cookies set by `Set-Cookie` headers |
 | `depth` | Clicks from the start URL |
-| `folderDepth` | Directories in the path, as in Screaming Frog: `/` and `/page` are 0, `/blog/post` is 1, `/blog/post/` is 2 |
+| `folderDepth` | Directories in the path: `/` and `/page` are 0, `/blog/post` is 1, `/blog/post/` is 2 |
 | `responseTimeMs` | Time from navigation start to handler (includes rendering in JS mode) |
 | `crawlTimestamp` | When the page was processed (ISO 8601) |
 | `sizeBytes`, `hash` | Uncompressed size and MD5 of the response body. Equal hashes mean exact duplicates. In JS mode these are for the raw HTML, not the rendered DOM. |
 | `transferredBytes` | Response body bytes as received, before decompression (headers excluded). In JS mode this is what Chromium reports, which also counts chunked-encoding framing. |
 | `totalTransferredBytes` | JS mode: `transferredBytes` of the page plus every resource it loaded by the `load` event (CSS, JS, images, fonts…), with the browser cache off so each page counts what a first-time visitor downloads. Fast HTML mode fetches only the HTML, so this equals `transferredBytes`. |
-| `co2Mg` | Estimated CO2e per page view from `totalTransferredBytes`, using the Sustainable Web Design Model v4 for a first-time visitor on the global average grid: 0.3 kWh/GB × 494 g/kWh = 148.2 g per GB. Matches Screaming Frog's CO2 (mg) column. |
+| `co2Mg` | Estimated CO2e per page view from `totalTransferredBytes`, using the Sustainable Web Design Model v4 for a first-time visitor on the global average grid: 0.3 kWh/GB × 494 g/kWh = 148.2 g per GB. |
 | `carbonRating` | A+ to F from `co2Mg` (A+ ≤ 40 mg, A ≤ 79, B ≤ 145, C ≤ 209, D ≤ 278, E ≤ 359, else F). JS mode only; empty in fast HTML mode, where the total covers just the HTML. |
 | `title`, `titleLength` | `<title>` text and length |
 | `titlePixelWidth` | Title width in Google's desktop results (Arial 20 px). Over about 561 px gets cut off. |
@@ -408,8 +408,8 @@ ScreamingAI/
 | `indexable`, `indexabilityReason` | `false` with a reason: `Redirected` (3xx, or a refresh or JavaScript redirect to another URL), `Status 404` and other non-2xx statuses, `noindex (meta)` (robots or googlebot tag), `noindex (X-Robots-Tag)`, `Canonicalised`, or `Blocked by robots.txt` (never requested: no status, and `statusText` says the same) |
 | `wordCount` | Words in body text (scripts and styles excluded) |
 | `sentenceCount`, `avgWordsPerSentence` | Sentences end at `.`, `!`, `?` and at block elements such as headings, list items and cells |
-| `fleschReadingEase`, `readability` | Flesch reading ease (English formula, higher is easier) capped to 0-100, and its band: Very Easy, Easy, Fairly Easy, Normal, Fairly Hard, Hard, Very Hard (Screaming Frog's names) |
-| `textRatio` | Visible text characters as a percentage of the HTML as served (not the rendered page, which JavaScript can grow). Matches Screaming Frog. |
+| `fleschReadingEase`, `readability` | Flesch reading ease (English formula, higher is easier) capped to 0-100, and its band: Very Easy, Easy, Fairly Easy, Normal, Fairly Hard, Hard, Very Hard |
+| `textRatio` | Visible text characters as a percentage of the HTML as served (not the rendered page, which JavaScript can grow). |
 | `internalLinks`, `uniqueInternalLinks` | Links to the same hostname: all, and distinct URLs |
 | `externalLinks`, `uniqueExternalLinks` | Links to other hostnames: all, and distinct URLs |
 | `uniqueJsOutlinks`, `uniqueExternalJsOutlinks` | Distinct internal/external link targets in the rendered page that aren't in the HTML as served (JS mode; the served HTML is parsed with the browser's `DOMParser`). Always 0 in fast HTML mode. |
@@ -422,7 +422,7 @@ ScreamingAI/
 | `inlinks`, `uniqueInlinks` | Internal links to the page from other crawled pages: every link, and distinct linking pages. Self-links, and links from 4xx/5xx pages (which aren't followed), don't count. |
 | `uniqueJsInlinks` | Distinct pages whose link to this page only exists after JavaScript runs |
 | `percentOfTotal` | `uniqueInlinks` as a percentage of the crawl's 200 HTML pages |
-| `linkScore` | 0–100. PageRank (damping 0.85) over the internal link graph of crawled pages, scaled `100 × log10(1 + 9 × rank / best rank)`, so the best-linked page is 100. Same idea as Screaming Frog's Link Score; its exact scaling isn't public, so values differ. |
+| `linkScore` | 0–100. PageRank (damping 0.85) over the internal link graph of crawled pages, scaled `100 × log10(1 + 9 × rank / best rank)`, so the best-linked page is 100. Comparable with the link scores of other SEO crawlers, but not identical, since their scaling isn't public. |
 | `nearDuplicates`, `closestNearDuplicate`, `closestNearDuplicateSimilarity` | Pages whose body text is at least 90% similar (MinHash over 5-word shingles, 128 hashes, LSH so pages aren't all compared pairwise), the most similar one, and its similarity in percent. Only indexable pages with at least 5 words are checked; others have `nearDuplicates` null. |
 | `error` | First line of the error message for failed requests |
 
@@ -468,7 +468,7 @@ npm i -D vite@7 @vitejs/plugin-react@5
 - The links may be added by JavaScript. Turn on **Render JavaScript**.
 
 **Pages show as "Blocked by bot protection"**
-The site's CDN (Akamai, Cloudflare) is refusing automated clients. Try a custom User-Agent. If you own the site, allowlist a custom user agent or your IP in the CDN/WAF, which is how crawlers such as Screaming Frog get through.
+The site's CDN (Akamai, Cloudflare) is refusing automated clients. Try a custom User-Agent. If you own the site, allowlist a custom user agent or your IP in the CDN/WAF, which is how commercial SEO crawlers get through.
 
 ---
 

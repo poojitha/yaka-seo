@@ -16,7 +16,7 @@ const AVERAGE_ADVANCE = ADVANCES.get('e'.codePointAt(0)!)!;
 
 /**
  * Width in pixels of `text` rendered in Arial at `fontPx`, as in search results. Each character is rounded to whole
- * pixels, as screen rendering does; this reproduces Screaming Frog's description widths exactly.
+ * pixels, as screen rendering does; this matches the widths SEO tools report for descriptions.
  */
 export function pixelWidth(text: string, fontPx: number): number {
     let total = 0;

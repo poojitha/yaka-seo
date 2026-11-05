@@ -203,7 +203,7 @@ describe('extractSeo: readability', () => {
         expect(hard.readability).toBe('Very Hard');
     });
 
-    it('keeps the score within 0-100, like Screaming Frog', () => {
+    it('keeps the score within 0-100', () => {
         // One short word scores above 100 by the formula; one long polysyllabic word far below 0.
         expect(extract('<body><p>Hi.</p></body>').fleschReadingEase).toBe(100);
         expect(extract('<body><p>Incomprehensibilities.</p></body>')).toMatchObject({ fleschReadingEase: 0, readability: 'Very Hard' });
@@ -221,7 +221,7 @@ describe('extractSeo: readability', () => {
     });
 
     it('measures the text ratio against the HTML as served when given, not the parsed (possibly JS-grown) page', () => {
-        // Screaming Frog: 75 visible characters in a 1776-byte page is 4.223%.
+        // Reference value: 75 visible characters in a 1776-byte page is 4.223%.
         const text = 'Crawler Test two point oh! Page Without Canonical Tags 0mCrnQNLh2sd2NS4PKC9';
         expect(text).toHaveLength(75);
         const r = extractSeo(loadHtml(`<body><p>${text}</p></body>`), PAGE, 200, {}, 1776);
@@ -254,7 +254,7 @@ describe('extractSeo: indexability', () => {
         { name: 'X-Robots-Tag none', xRobots: 'none', indexable: false, reason: 'noindex (X-Robots-Tag)' },
         { name: 'canonical to another URL', html: '<link rel="canonical" href="https://example.com/other">', indexable: false, reason: 'Canonicalised' },
         { name: 'self-referencing canonical', html: `<link rel="canonical" href="${PAGE}">`, indexable: true, reason: '' },
-        // Search engines treat /page and /page/ as different URLs, as does Screaming Frog.
+        // Search engines treat /page and /page/ as different URLs.
         { name: 'canonical differing only by trailing slash', html: `<link rel="canonical" href="${PAGE}/">`, indexable: false, reason: 'Canonicalised' },
         { name: 'self-referencing canonical on a URL with a #fragment', html: `<link rel="canonical" href="${PAGE}">`, url: `${PAGE}#top`, indexable: true, reason: '' },
         { name: 'googlebot meta noindex', html: '<meta name="googlebot" content="noindex">', indexable: false, reason: 'noindex (meta)' },

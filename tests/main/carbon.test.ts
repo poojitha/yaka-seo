@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { carbonRating, co2Milligrams } from '../../src/main/carbon';
 
 describe('co2Milligrams', () => {
-    it('matches Screaming Frog for the same transferred bytes', () => {
-        // From a Screaming Frog export: 8131 bytes transferred, 1.205 mg CO2.
+    it('matches a reference crawler for the same transferred bytes', () => {
+        // From a reference crawler export: 8131 bytes transferred, 1.205 mg CO2.
         expect(co2Milligrams(8131)).toBe(1.205);
     });
 

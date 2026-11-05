@@ -371,7 +371,7 @@ export const CASES: Case[] = [
         respond: page({ name: 'Blocked by robots.txt' }),
         filters: ['noindex'],
         fields: { status: null, statusText: 'Blocked by robots.txt', indexabilityReason: 'Blocked by robots.txt', error: null },
-        note: 'Listed as non-indexable but never requested, as in Screaming Frog.',
+        note: 'Listed as non-indexable but never requested.',
     },
 
     // --- Titles ---------------------------------------------------------------------------------------------
