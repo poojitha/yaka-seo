@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { PageResult } from '@shared/types';
 import { makeResult } from '../fixtures';
-import { Dashboard } from '../../src/renderer/src/Dashboard';
+import { Dashboard, HIDDEN_WIDGETS_KEY } from '../../src/renderer/src/Dashboard';
 
 const page = (path: string, overrides: Partial<PageResult> = {}) =>
     makeResult({
@@ -35,6 +35,8 @@ function renderDashboard(renderJs = true, data = rows) {
 const panel = (title: string) => screen.getByRole('heading', { name: title }).closest('section')!;
 
 describe('Dashboard', () => {
+    beforeEach(() => localStorage.clear());
+
     it('scores health as the share of URLs without an error-level issue', () => {
         const onOpen = renderDashboard();
         // 2 of 6 URLs have errors (the 404, and the page with no title).
@@ -89,5 +91,54 @@ describe('Dashboard', () => {
         const checklist = panel('Technical checklist');
         expect(within(checklist).getByText('HTTPS').parentElement!.textContent).toContain('Pass');
         expect(within(checklist).getByText('HTTP/2 or HTTP/3').parentElement!.textContent).toContain('Missing');
+    });
+    describe('showing and hiding', () => {
+        it('hides a panel from its own button and remembers it after a reload', () => {
+            const { unmount } = render(<Dashboard rows={rows} renderJs onOpen={vi.fn()} />);
+            fireEvent.click(screen.getByRole('button', { name: 'Hide Crawl depth' }));
+            expect(screen.queryByRole('heading', { name: 'Crawl depth' })).toBeNull();
+            expect(JSON.parse(localStorage.getItem(HIDDEN_WIDGETS_KEY)!)).toEqual(['depth']);
+
+            unmount();
+            renderDashboard();
+            expect(screen.queryByRole('heading', { name: 'Crawl depth' })).toBeNull();
+            expect(screen.getByRole('heading', { name: 'Status codes' })).toBeTruthy();
+        });
+
+        it('hides a summary tile, and drops a section heading once all of it is hidden', () => {
+            renderDashboard();
+            fireEvent.click(screen.getByRole('button', { name: 'Hide Site health' }));
+            expect(screen.queryByRole('meter', { name: 'Site health' })).toBeNull();
+            fireEvent.click(screen.getByRole('button', { name: 'Hide Issues by severity' }));
+            expect(screen.queryByRole('heading', { name: 'Issues' })).toBeNull();
+        });
+
+        it('toggles panels from Customize, and Show all brings everything back', () => {
+            renderDashboard();
+            fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
+            const customize = screen.getByRole('region', { name: 'Customize dashboard' });
+            const box = within(customize).getByRole('checkbox', { name: 'Readability' });
+            fireEvent.click(box);
+            expect(screen.queryByRole('heading', { name: 'Readability' })).toBeNull();
+            fireEvent.click(box);
+            expect(screen.getByRole('heading', { name: 'Readability' })).toBeTruthy();
+
+            fireEvent.click(within(customize).getByRole('checkbox', { name: 'Freshness' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Show all (1 hidden)' }));
+            expect(screen.getByRole('heading', { name: 'Freshness' })).toBeTruthy();
+            expect(JSON.parse(localStorage.getItem(HIDDEN_WIDGETS_KEY)!)).toEqual([]);
+        });
+
+        it('ignores saved ids it does not know and unreadable storage', () => {
+            localStorage.setItem(HIDDEN_WIDGETS_KEY, JSON.stringify(['gone', 'carbon']));
+            const { unmount } = render(<Dashboard rows={rows} renderJs onOpen={vi.fn()} />);
+            expect(screen.queryByRole('heading', { name: 'Carbon rating' })).toBeNull();
+            expect(screen.getByRole('button', { name: 'Show all (1 hidden)' })).toBeTruthy();
+            unmount();
+
+            localStorage.setItem(HIDDEN_WIDGETS_KEY, '{not json');
+            renderDashboard();
+            expect(screen.getByRole('heading', { name: 'Carbon rating' })).toBeTruthy();
+        });
     });
 });

@@ -1,15 +1,17 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
     Activity,
     CircleAlert,
     CircleCheck,
     CircleMinus,
     CircleX,
+    EyeOff,
     Gauge,
     Globe,
     HeartPulse,
     Info,
     Leaf,
+    SlidersHorizontal,
     TriangleAlert,
     type LucideIcon,
 } from 'lucide-react';
@@ -138,6 +140,97 @@ function sectionOf(url: string) {
     } catch {
         return '/';
     }
+}
+
+/** Every tile and panel the viewer can hide, in display order and grouped by the heading they sit under. */
+const WIDGET_GROUPS = [
+    {
+        heading: 'Summary',
+        widgets: [
+            { id: 'health', label: 'Site health' },
+            { id: 'urls', label: 'URLs crawled' },
+            { id: 'indexable', label: 'Indexable' },
+            { id: 'errors', label: '4xx / 5xx / Failed' },
+            { id: 'avg-response', label: 'Avg response time' },
+            { id: 'avg-weight', label: 'Avg page weight' },
+            { id: 'avg-co2', label: 'Avg CO2 per page' },
+        ],
+    },
+    { heading: 'Issues', widgets: [{ id: 'issues', label: 'Issues by severity' }] },
+    {
+        heading: 'Crawlability & indexing',
+        widgets: [
+            { id: 'status', label: 'Status codes' },
+            { id: 'indexability', label: 'Indexability' },
+            { id: 'redirects', label: 'Redirect health' },
+            { id: 'canonicals', label: 'Canonical health' },
+            { id: 'depth', label: 'Crawl depth' },
+            { id: 'content-types', label: 'Content types' },
+        ],
+    },
+    {
+        heading: 'Content',
+        widgets: [
+            { id: 'duplicates', label: 'Duplicate content' },
+            { id: 'title-fit', label: 'Title & description fit' },
+            { id: 'words', label: 'Word count' },
+            { id: 'readability', label: 'Readability' },
+            { id: 'freshness', label: 'Freshness' },
+        ],
+    },
+    {
+        heading: 'Site structure',
+        widgets: [
+            { id: 'sections', label: 'Site sections' },
+            { id: 'inlinks', label: 'Internal linking' },
+            { id: 'js', label: 'JavaScript dependency' },
+            { id: 'top-pages', label: 'Top pages by link score' },
+        ],
+    },
+    {
+        heading: 'Performance, sustainability & setup',
+        widgets: [
+            { id: 'response-times', label: 'Response time' },
+            { id: 'weight', label: 'Page weight & compression' },
+            { id: 'carbon', label: 'Carbon rating' },
+            { id: 'slowest', label: 'Slowest pages' },
+            { id: 'checklist', label: 'Technical checklist' },
+        ],
+    },
+] as const;
+
+type WidgetGroup = (typeof WIDGET_GROUPS)[number];
+type WidgetId = WidgetGroup['widgets'][number]['id'];
+const WIDGET_LABELS = Object.fromEntries(WIDGET_GROUPS.flatMap((g) => g.widgets.map((w) => [w.id, w.label]))) as Record<WidgetId, string>;
+const WIDGET_IDS = new Set<string>(Object.keys(WIDGET_LABELS));
+export const HIDDEN_WIDGETS_KEY = 'yaka-seo.dashboard.hidden';
+
+/** Hidden widget ids, kept in localStorage so the layout survives reloads. Storage can be unavailable or hold junk: then everything shows. */
+function useHiddenWidgets() {
+    const [hidden, setHidden] = useState<ReadonlySet<WidgetId>>(() => {
+        try {
+            const saved: unknown = JSON.parse(localStorage.getItem(HIDDEN_WIDGETS_KEY) ?? '[]');
+            // Unknown ids (a panel renamed or removed since) are dropped, so nothing stays hidden with no checkbox to show it.
+            return new Set(Array.isArray(saved) ? (saved.filter((id) => typeof id === 'string' && WIDGET_IDS.has(id)) as WidgetId[]) : []);
+        } catch {
+            return new Set();
+        }
+    });
+    useEffect(() => {
+        try {
+            localStorage.setItem(HIDDEN_WIDGETS_KEY, JSON.stringify([...hidden]));
+        } catch {
+            // Not persisted; the choice still holds until the app closes.
+        }
+    }, [hidden]);
+    const setShown = (id: WidgetId, shown: boolean) =>
+        setHidden((prev) => {
+            const next = new Set(prev);
+            if (shown) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    return { hidden, setShown, showAll: () => setHidden(new Set()) };
 }
 
 function useStats(rows: PageResult[]) {
@@ -333,6 +426,8 @@ function useStats(rows: PageResult[]) {
 
 export function Dashboard({ rows, renderJs, onOpen }: Props) {
     const s = useStats(rows);
+    const { hidden, setShown, showAll } = useHiddenWidgets();
+    const [customizing, setCustomizing] = useState(false);
 
     if (rows.length === 0) {
         return <div className="flex flex-1 items-center justify-center glass rounded-[var(--radius-lg)] text-muted">No URLs crawled yet.</div>;
@@ -342,27 +437,70 @@ export function Dashboard({ rows, renderJs, onOpen }: Props) {
     const healthWord = s.health >= 80 ? 'Good' : s.health >= 50 ? 'Needs work' : 'Poor';
     // Dense flow lets a later panel fill the gap a wide panel leaves.
     const grid = 'grid shrink-0 grid-flow-row-dense grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3';
+    const show = (id: WidgetId) => !hidden.has(id);
+    // A heading only shows while something under it does.
+    const anyShown = (heading: WidgetGroup['heading']) => WIDGET_GROUPS.find((g) => g.heading === heading)!.widgets.some((w) => show(w.id));
+    const panel = (id: WidgetId, subtitle: string, children: ReactNode, wide?: boolean) =>
+        show(id) && (
+            <Panel title={WIDGET_LABELS[id]} subtitle={subtitle} wide={wide} onHide={() => setShown(id, false)}>
+                {children}
+            </Panel>
+        );
+    const tile = (id: WidgetId, children: ReactNode) =>
+        show(id) && (
+            <Hideable label={WIDGET_LABELS[id]} onHide={() => setShown(id, false)}>
+                {children}
+            </Hideable>
+        );
 
     return (
         <div className="dashboard glass-backdrop flex min-h-0 flex-1 flex-col gap-3 overflow-auto pr-1">
-            <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3">
-                <HealthTile score={s.health} tone={healthTone} word={healthWord} counts={s.severityCounts} onOpen={onOpen} />
-                <StatTile icon={Globe} label="URLs crawled" value={fmt(s.total)} detail={`${fmt(s.htmlCount)} HTML pages`} />
-                <StatTile
-                    icon={CircleCheck}
-                    label="Indexable"
-                    value={`${pct(s.indexable, s.total)}%`}
-                    detail={`${fmt(s.indexable)} of ${fmt(s.total)} URLs`}
-                    meter={s.total ? s.indexable / s.total : 0}
-                />
-                <StatTile icon={CircleAlert} label="4xx / 5xx / Failed" value={fmt(s.errors)} detail={`${fmt(s.redirects)} redirects`} onClick={() => onOpen('errors')} />
-                <StatTile icon={Activity} label="Avg response time" value={s.avgResponse === null ? '–' : formatMs(s.avgResponse)} detail="all answered URLs" />
-                <StatTile icon={Gauge} label="Avg page weight" value={s.avgWeight === null ? '–' : formatBytes(s.avgWeight)} detail="HTML pages, incl. resources" />
-                <StatTile icon={Leaf} label="Avg CO2 per page" value={s.avgCo2 === null ? '–' : `${s.avgCo2.toFixed(2)} mg`} detail="Sustainable Web Design model" />
+            <div className="flex shrink-0 items-center justify-end gap-3">
+                {hidden.size > 0 && (
+                    <button type="button" className="border-0 bg-transparent p-0 text-[13px] text-info hover:underline" onClick={showAll}>
+                        Show all ({fmt(hidden.size)} hidden)
+                    </button>
+                )}
+                <button
+                    type="button"
+                    className={`flex items-center gap-2 px-3 py-1.5 text-[13px] hover:bg-surface-2 ${customizing ? 'border-info' : ''}`}
+                    aria-expanded={customizing}
+                    aria-controls="dashboard-customize"
+                    onClick={() => setCustomizing((c) => !c)}
+                >
+                    <SlidersHorizontal size={15} aria-hidden />
+                    Customize
+                </button>
             </div>
+            {customizing && <CustomizePanel hidden={hidden} setShown={setShown} showAll={showAll} onClose={() => setCustomizing(false)} />}
 
-            <SectionHeading>Issues</SectionHeading>
-            <Panel title="Issues by severity" subtitle="URLs affected by each issue. Click one to see its URLs">
+            {hidden.size === WIDGET_IDS.size && <Empty>Every panel is hidden. Use Customize or Show all to bring them back.</Empty>}
+
+            {anyShown('Summary') && (
+                <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-3">
+                    {tile('health', <HealthTile score={s.health} tone={healthTone} word={healthWord} counts={s.severityCounts} onOpen={onOpen} />)}
+                    {tile('urls', <StatTile icon={Globe} label="URLs crawled" value={fmt(s.total)} detail={`${fmt(s.htmlCount)} HTML pages`} />)}
+                    {tile(
+                        'indexable',
+                        <StatTile
+                            icon={CircleCheck}
+                            label="Indexable"
+                            value={`${pct(s.indexable, s.total)}%`}
+                            detail={`${fmt(s.indexable)} of ${fmt(s.total)} URLs`}
+                            meter={s.total ? s.indexable / s.total : 0}
+                        />,
+                    )}
+                    {tile('errors', <StatTile icon={CircleAlert} label="4xx / 5xx / Failed" value={fmt(s.errors)} detail={`${fmt(s.redirects)} redirects`} onClick={() => onOpen('errors')} />)}
+                    {tile('avg-response', <StatTile icon={Activity} label="Avg response time" value={s.avgResponse === null ? '–' : formatMs(s.avgResponse)} detail="all answered URLs" />)}
+                    {tile('avg-weight', <StatTile icon={Gauge} label="Avg page weight" value={s.avgWeight === null ? '–' : formatBytes(s.avgWeight)} detail="HTML pages, incl. resources" />)}
+                    {tile('avg-co2', <StatTile icon={Leaf} label="Avg CO2 per page" value={s.avgCo2 === null ? '–' : `${s.avgCo2.toFixed(2)} mg`} detail="Sustainable Web Design model" />)}
+                </div>
+            )}
+
+            {anyShown('Issues') && <SectionHeading>Issues</SectionHeading>}
+            {panel(
+                'issues',
+                'URLs affected by each issue. Click one to see its URLs',
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
                     {(['error', 'warning', 'notice'] as const).map((sev) => {
                         const Icon = SEVERITY_ICON[sev];
@@ -377,123 +515,215 @@ export function Dashboard({ rows, renderJs, onOpen }: Props) {
                             </div>
                         );
                     })}
-                </div>
-            </Panel>
+                </div>,
+            )}
 
-            <SectionHeading>Crawlability &amp; indexing</SectionHeading>
-            <div className={grid}>
-                <Panel title="Status codes" subtitle="URLs by response class">
-                    <BarList bars={s.statuses} total={s.total} onOpen={onOpen} />
-                </Panel>
-                <Panel title="Indexability" subtitle="Why URLs can or can't be indexed">
-                    <BarList bars={s.indexability} total={s.total} onOpen={onOpen} />
-                </Panel>
-                <Panel title="Redirect health" subtitle="Redirect types, and where redirects lead">
-                    {s.redirects ? (
-                        <>
-                            <BarList bars={s.redirectTypes} total={s.redirects} />
-                            <div className="my-2 border-t border-line" />
-                            <BarList bars={s.redirectProblems} total={s.redirects} onOpen={onOpen} />
-                        </>
-                    ) : (
-                        <Empty>No redirects found.</Empty>
-                    )}
-                </Panel>
-                <Panel title="Canonical health" subtitle="rel=canonical on 2xx HTML pages">
-                    {s.htmlCount ? <BarList bars={s.canonicals} total={s.htmlCount} onOpen={onOpen} /> : <Empty>No HTML pages.</Empty>}
-                </Panel>
-                <Panel title="Crawl depth" subtitle="Clicks from the start URL">
-                    <ColumnChart bars={s.depths} unit="URLs" axisLabel="Depth" />
-                </Panel>
-                <Panel title="Content types" subtitle="Responses by Content-Type">
-                    <BarList bars={s.contentTypes} total={s.contentTypes.reduce((a, b) => a + b.value, 0)} />
-                </Panel>
-            </div>
-
-            <SectionHeading>Content</SectionHeading>
-            <div className={grid}>
-                <Panel title="Duplicate content" subtitle="2xx HTML pages sharing content or tags">
-                    <BarList bars={s.duplicates} total={s.htmlCount} onOpen={onOpen} />
-                    {!s.analysed && <p className="m-0 mt-2 px-2 text-[12px] text-muted">Near duplicates are found when the crawl finishes.</p>}
-                </Panel>
-                <Panel title="Title & description fit" subtitle="Length in Google's desktop results" wide>
-                    <div className="flex flex-col gap-4">
-                        <StackedBar label="Titles" parts={s.titleFit} total={s.htmlCount} onOpen={onOpen} />
-                        <StackedBar label="Meta descriptions" parts={s.descFit} total={s.htmlCount} onOpen={onOpen} />
+            {anyShown('Crawlability & indexing') && (
+                <>
+                    <SectionHeading>Crawlability &amp; indexing</SectionHeading>
+                    <div className={grid}>
+                        {panel('status', 'URLs by response class', <BarList bars={s.statuses} total={s.total} onOpen={onOpen} />)}
+                        {panel('indexability', "Why URLs can or can't be indexed", <BarList bars={s.indexability} total={s.total} onOpen={onOpen} />)}
+                        {panel(
+                            'redirects',
+                            'Redirect types, and where redirects lead',
+                            s.redirects ? (
+                                <>
+                                    <BarList bars={s.redirectTypes} total={s.redirects} />
+                                    <div className="my-2 border-t border-line" />
+                                    <BarList bars={s.redirectProblems} total={s.redirects} onOpen={onOpen} />
+                                </>
+                            ) : (
+                                <Empty>No redirects found.</Empty>
+                            ),
+                        )}
+                        {panel(
+                            'canonicals',
+                            'rel=canonical on 2xx HTML pages',
+                            s.htmlCount ? <BarList bars={s.canonicals} total={s.htmlCount} onOpen={onOpen} /> : <Empty>No HTML pages.</Empty>,
+                        )}
+                        {panel('depth', 'Clicks from the start URL', <ColumnChart bars={s.depths} unit="URLs" axisLabel="Depth" />)}
+                        {panel('content-types', 'Responses by Content-Type', <BarList bars={s.contentTypes} total={s.contentTypes.reduce((a, b) => a + b.value, 0)} />)}
                     </div>
-                </Panel>
-                <Panel title="Word count" subtitle="Words per 2xx HTML page">
-                    <ColumnChart bars={s.words} unit="pages" axisLabel="Words" />
-                </Panel>
-                <Panel title="Readability" subtitle="Flesch reading ease band (English formula)">
-                    <ColumnChart bars={s.readability} unit="pages" />
-                </Panel>
-                <Panel title="Freshness" subtitle="Last-Modified header age at crawl time, 2xx HTML pages">
-                    <ColumnChart bars={s.freshness} unit="pages" />
-                </Panel>
-            </div>
+                </>
+            )}
 
-            <SectionHeading>Site structure</SectionHeading>
-            <div className={grid}>
-                <Panel title="Site sections" subtitle="URLs by first folder. Click a section to see its URLs" wide>
-                    <SectionTable sections={s.sections} onOpen={onOpen} />
-                </Panel>
-                <Panel title="Internal linking" subtitle="Distinct pages linking to each 2xx HTML page">
-                    {s.analysed ? (
-                        <>
-                            <ColumnChart bars={s.inlinkBuckets} unit="pages" axisLabel="Linking pages" />
-                            <BarList bars={[s.weakInlinks]} total={s.htmlCount} onOpen={onOpen} />
-                        </>
-                    ) : (
-                        <Empty>Inlinks are counted when the crawl finishes.</Empty>
-                    )}
-                </Panel>
-                <Panel title="JavaScript dependency" subtitle="Links that only exist after JavaScript runs">
-                    {!renderJs ? (
-                        <Empty>Needs Render JavaScript mode (fast mode never runs scripts).</Empty>
-                    ) : (
-                        <>
-                            <BarList bars={s.jsDependency} total={s.htmlCount} onOpen={onOpen} />
-                            <p className="m-0 mt-2 px-2 text-[12px] text-muted">{fmt(s.jsExternal)} pages have external links only added by JavaScript.</p>
-                            {!s.analysed && <p className="m-0 mt-1 px-2 text-[12px] text-muted">JS-only inlinks are counted when the crawl finishes.</p>}
-                        </>
-                    )}
-                </Panel>
-                <Panel title="Top pages by link score" subtitle="Internal PageRank, 0–100" wide>
-                    {s.analysed ? (
-                        <PageTable rows={s.topPages} valueLabel="Link score" value={(r) => String(r.linkScore ?? '')} extraLabel="Inlinks" extra={(r) => fmt(r.inlinks ?? 0)} />
-                    ) : (
-                        <Empty>Link scores are calculated when the crawl finishes.</Empty>
-                    )}
-                </Panel>
-            </div>
+            {anyShown('Content') && (
+                <>
+                    <SectionHeading>Content</SectionHeading>
+                    <div className={grid}>
+                        {panel(
+                            'duplicates',
+                            '2xx HTML pages sharing content or tags',
+                            <>
+                                <BarList bars={s.duplicates} total={s.htmlCount} onOpen={onOpen} />
+                                {!s.analysed && <p className="m-0 mt-2 px-2 text-[12px] text-muted">Near duplicates are found when the crawl finishes.</p>}
+                            </>,
+                        )}
+                        {panel(
+                            'title-fit',
+                            "Length in Google's desktop results",
+                            <div className="flex flex-col gap-4">
+                                <StackedBar label="Titles" parts={s.titleFit} total={s.htmlCount} onOpen={onOpen} />
+                                <StackedBar label="Meta descriptions" parts={s.descFit} total={s.htmlCount} onOpen={onOpen} />
+                            </div>,
+                            true,
+                        )}
+                        {panel('words', 'Words per 2xx HTML page', <ColumnChart bars={s.words} unit="pages" axisLabel="Words" />)}
+                        {panel('readability', 'Flesch reading ease band (English formula)', <ColumnChart bars={s.readability} unit="pages" />)}
+                        {panel('freshness', 'Last-Modified header age at crawl time, 2xx HTML pages', <ColumnChart bars={s.freshness} unit="pages" />)}
+                    </div>
+                </>
+            )}
 
-            <SectionHeading>Performance, sustainability &amp; setup</SectionHeading>
-            <div className={grid}>
-                <Panel title="Response time" subtitle="Per URL, answered requests">
-                    <ColumnChart bars={s.responseTimes} unit="URLs" />
-                </Panel>
-                <Panel title="Page weight & compression" subtitle={renderJs ? 'Per page, incl. resources' : 'Per page, HTML only (fast mode)'}>
-                    <ColumnChart bars={s.weightBuckets} unit="pages" />
-                    {s.avgHtmlSize !== null && s.avgHtmlTransferred !== null && (
-                        <p className="m-0 mt-2 px-2 text-[12px] text-muted">
-                            Avg HTML {formatBytes(s.avgHtmlSize)}, {formatBytes(s.avgHtmlTransferred)} transferred ({pct(s.avgHtmlSize - s.avgHtmlTransferred, s.avgHtmlSize)}% saved by
-                            compression)
-                        </p>
-                    )}
-                    <BarList bars={[s.uncompressed, s.heavy]} total={s.htmlCount} onOpen={onOpen} />
-                </Panel>
-                <Panel title="Carbon rating" subtitle="Per page, Sustainable Web Design model">
-                    {s.ratedCount ? <ColumnChart bars={s.carbon} unit="pages" /> : <Empty>Carbon ratings need Render JavaScript mode (page resources are measured).</Empty>}
-                </Panel>
-                <Panel title="Slowest pages" subtitle="Highest response time">
-                    <PageTable rows={s.slowest} valueLabel="Time" value={(r) => formatMs(r.responseTimeMs ?? 0)} extraLabel="Status" extra={(r) => String(r.status ?? 'ERR')} />
-                </Panel>
-                <Panel title="Technical checklist" subtitle="Site-wide setup, share of URLs that pass" wide>
-                    <Checklist checks={s.checks} onOpen={onOpen} />
-                </Panel>
-            </div>
+            {anyShown('Site structure') && (
+                <>
+                    <SectionHeading>Site structure</SectionHeading>
+                    <div className={grid}>
+                        {panel('sections', 'URLs by first folder. Click a section to see its URLs', <SectionTable sections={s.sections} onOpen={onOpen} />, true)}
+                        {panel(
+                            'inlinks',
+                            'Distinct pages linking to each 2xx HTML page',
+                            s.analysed ? (
+                                <>
+                                    <ColumnChart bars={s.inlinkBuckets} unit="pages" axisLabel="Linking pages" />
+                                    <BarList bars={[s.weakInlinks]} total={s.htmlCount} onOpen={onOpen} />
+                                </>
+                            ) : (
+                                <Empty>Inlinks are counted when the crawl finishes.</Empty>
+                            ),
+                        )}
+                        {panel(
+                            'js',
+                            'Links that only exist after JavaScript runs',
+                            !renderJs ? (
+                                <Empty>Needs Render JavaScript mode (fast mode never runs scripts).</Empty>
+                            ) : (
+                                <>
+                                    <BarList bars={s.jsDependency} total={s.htmlCount} onOpen={onOpen} />
+                                    <p className="m-0 mt-2 px-2 text-[12px] text-muted">{fmt(s.jsExternal)} pages have external links only added by JavaScript.</p>
+                                    {!s.analysed && <p className="m-0 mt-1 px-2 text-[12px] text-muted">JS-only inlinks are counted when the crawl finishes.</p>}
+                                </>
+                            ),
+                        )}
+                        {panel(
+                            'top-pages',
+                            'Internal PageRank, 0–100',
+                            s.analysed ? (
+                                <PageTable rows={s.topPages} valueLabel="Link score" value={(r) => String(r.linkScore ?? '')} extraLabel="Inlinks" extra={(r) => fmt(r.inlinks ?? 0)} />
+                            ) : (
+                                <Empty>Link scores are calculated when the crawl finishes.</Empty>
+                            ),
+                            true,
+                        )}
+                    </div>
+                </>
+            )}
 
+            {anyShown('Performance, sustainability & setup') && (
+                <>
+                    <SectionHeading>Performance, sustainability &amp; setup</SectionHeading>
+                    <div className={grid}>
+                        {panel('response-times', 'Per URL, answered requests', <ColumnChart bars={s.responseTimes} unit="URLs" />)}
+                        {panel(
+                            'weight',
+                            renderJs ? 'Per page, incl. resources' : 'Per page, HTML only (fast mode)',
+                            <>
+                                <ColumnChart bars={s.weightBuckets} unit="pages" />
+                                {s.avgHtmlSize !== null && s.avgHtmlTransferred !== null && (
+                                    <p className="m-0 mt-2 px-2 text-[12px] text-muted">
+                                        Avg HTML {formatBytes(s.avgHtmlSize)}, {formatBytes(s.avgHtmlTransferred)} transferred ({pct(s.avgHtmlSize - s.avgHtmlTransferred, s.avgHtmlSize)}% saved by
+                                        compression)
+                                    </p>
+                                )}
+                                <BarList bars={[s.uncompressed, s.heavy]} total={s.htmlCount} onOpen={onOpen} />
+                            </>,
+                        )}
+                        {panel(
+                            'carbon',
+                            'Per page, Sustainable Web Design model',
+                            s.ratedCount ? <ColumnChart bars={s.carbon} unit="pages" /> : <Empty>Carbon ratings need Render JavaScript mode (page resources are measured).</Empty>,
+                        )}
+                        {panel(
+                            'slowest',
+                            'Highest response time',
+                            <PageTable rows={s.slowest} valueLabel="Time" value={(r) => formatMs(r.responseTimeMs ?? 0)} extraLabel="Status" extra={(r) => String(r.status ?? 'ERR')} />,
+                        )}
+                        {panel('checklist', 'Site-wide setup, share of URLs that pass', <Checklist checks={s.checks} onOpen={onOpen} />, true)}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
+/** A checkbox per tile and panel, grouped under the dashboard's headings. */
+function CustomizePanel({
+    hidden,
+    setShown,
+    showAll,
+    onClose,
+}: {
+    hidden: ReadonlySet<WidgetId>;
+    setShown: (id: WidgetId, shown: boolean) => void;
+    showAll: () => void;
+    onClose: () => void;
+}) {
+    return (
+        <section
+            id="dashboard-customize"
+            aria-label="Customize dashboard"
+            className="shrink-0 glass rounded-[var(--radius-lg)] px-4 py-3"
+            onKeyDown={(e) => e.key === 'Escape' && onClose()}
+        >
+            <div className="mb-3 flex items-center gap-3">
+                <h3 className="m-0 text-[15px] font-semibold text-fg">Show on dashboard</h3>
+                <span className="text-[12px] text-muted">Remembered on this computer</span>
+                <button type="button" className="ml-auto border-0 bg-transparent p-0 text-[13px] text-info hover:underline" onClick={showAll} disabled={hidden.size === 0}>
+                    Show all
+                </button>
+                <button type="button" className="px-3 py-1 text-[13px] hover:bg-surface-2" onClick={onClose}>
+                    Done
+                </button>
+            </div>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-4 gap-y-3">
+                {WIDGET_GROUPS.map((g) => (
+                    <fieldset key={g.heading} className="m-0 min-w-0 border-0 p-0">
+                        <legend className="mb-1 p-0 text-[12px] font-semibold tracking-wider text-muted uppercase">{g.heading}</legend>
+                        {g.widgets.map((w) => (
+                            <label key={w.id} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius)] px-1 py-0.5 text-[13px] text-fg hover:bg-surface-2">
+                                <input type="checkbox" className="size-4 shrink-0 cursor-pointer p-0 accent-info" checked={!hidden.has(w.id)} onChange={(e) => setShown(w.id, e.target.checked)} />
+                                <span className="truncate">{w.label}</span>
+                            </label>
+                        ))}
+                    </fieldset>
+                ))}
+            </div>
+        </section>
+    );
+}
+
+/** Corner button that hides one tile or panel; it appears on hover or keyboard focus. */
+function HideButton({ label, onHide }: { label: string; onHide: () => void }) {
+    return (
+        <button
+            type="button"
+            className="absolute top-2 right-2 z-10 flex size-7 items-center justify-center border-0 bg-transparent p-0 text-muted opacity-0 group-hover:opacity-100 hover:bg-surface-2 hover:text-fg focus-visible:opacity-100"
+            aria-label={`Hide ${label}`}
+            title={`Hide ${label}`}
+            onClick={onHide}
+        >
+            <EyeOff size={15} aria-hidden />
+        </button>
+    );
+}
+
+/** Wraps a tile (which may itself be a button) so the hide button sits beside it, not nested inside it. */
+function Hideable({ label, onHide, children }: { label: string; onHide: () => void; children: ReactNode }) {
+    return (
+        <div className="group relative flex *:flex-1">
+            {children}
+            <HideButton label={label} onHide={onHide} />
         </div>
     );
 }
@@ -571,10 +801,11 @@ function StatTile({ icon: Icon, label, value, detail, meter, onClick }: { icon: 
     );
 }
 
-function Panel({ title, subtitle, wide, children }: { title: string; subtitle: string; wide?: boolean; children: ReactNode }) {
+function Panel({ title, subtitle, wide, onHide, children }: { title: string; subtitle: string; wide?: boolean; onHide: () => void; children: ReactNode }) {
     return (
-        <section className={`flex min-h-[230px] shrink-0 flex-col glass rounded-[var(--radius-lg)] px-4 py-3 ${wide ? 'lg:col-span-2' : ''}`}>
-            <h3 className="m-0 text-[15px] font-semibold text-fg">{title}</h3>
+        <section className={`group relative flex min-h-[230px] shrink-0 flex-col glass rounded-[var(--radius-lg)] px-4 py-3 ${wide ? 'lg:col-span-2' : ''}`}>
+            <HideButton label={title} onHide={onHide} />
+            <h3 className="m-0 pr-8 text-[15px] font-semibold text-fg">{title}</h3>
             <p className="m-0 mb-3 text-[12px] text-muted">{subtitle}</p>
             <div className="flex min-h-0 flex-1 flex-col">{children}</div>
         </section>
